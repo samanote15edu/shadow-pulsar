@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 
@@ -22,7 +22,7 @@ export default function ReportView() {
   const { token } = useParams();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  
+
   // DATE FILTER STATE
   const [rangeType, setRangeType] = useState<'today' | 'yesterday' | 'week' | 'custom'>('today');
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
@@ -47,7 +47,7 @@ export default function ReportView() {
       // 2. Setup Date Range
       let start = new Date();
       let end = new Date();
-      
+
       if (rangeType === 'today') {
         start.setHours(0, 0, 0, 0);
       } else if (rangeType === 'yesterday') {
@@ -67,7 +67,7 @@ export default function ReportView() {
       // 3. Fetch Data
       const { data: store } = await supabase.from('stores').select('*').eq('id', tokenData.store_id).single();
       const { data: products } = await supabase.from('products').select('*').eq('store_id', tokenData.store_id).order('current_stock', { ascending: true });
-      
+
       const { data: transactions } = await supabase
         .from('transactions')
         .select('*, products(name)')
@@ -86,7 +86,7 @@ export default function ReportView() {
   }, [token, rangeType, customRange]);
 
   if (loading) return <div className="flex items-center justify-center min-h-screen bg-slate-900 text-white font-sans uppercase font-black tracking-widest text-xs animate-pulse">Analizando Reporte...</div>;
-  if (data === 'invalid') return <div className="flex items-center justify-center min-h-screen bg-slate-900 text-red-500 font-sans font-black uppercase text-xs text-center p-8">Este acceso ha expirado.<br/>Pide uno nuevo en WhatsApp.</div>;
+  if (data === 'invalid') return <div className="flex items-center justify-center min-h-screen bg-slate-900 text-red-500 font-sans font-black uppercase text-xs text-center p-8">Este acceso ha expirado.<br />Pide uno nuevo en WhatsApp.</div>;
 
   const isAdmin = data.accessLevel === 'admin';
 
@@ -98,7 +98,7 @@ export default function ReportView() {
           <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-1">Sincronizado con WhatsApp</p>
         </div>
         {isAdmin && (
-           <a href="/" className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">Admin</a>
+          <a href="/" className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">Admin</a>
         )}
       </header>
 
@@ -112,16 +112,16 @@ export default function ReportView() {
 
       {rangeType === 'custom' && (
         <div className="flex gap-4 mb-6 animate-in fade-in slide-in-from-top-2">
-            <input type="date" className="flex-1 bg-white border border-slate-200 p-3 rounded-xl text-xs font-bold" onChange={e => setCustomRange(p => ({ ...p, start: e.target.value }))} />
-            <input type="date" className="flex-1 bg-white border border-slate-200 p-3 rounded-xl text-xs font-bold" onChange={e => setCustomRange(p => ({ ...p, end: e.target.value }))} />
+          <input type="date" className="flex-1 bg-white border border-slate-200 p-3 rounded-xl text-xs font-bold" onChange={e => setCustomRange(p => ({ ...p, start: e.target.value }))} />
+          <input type="date" className="flex-1 bg-white border border-slate-200 p-3 rounded-xl text-xs font-bold" onChange={e => setCustomRange(p => ({ ...p, end: e.target.value }))} />
         </div>
       )}
 
       {/* SUMMARY CARD */}
       <section className="mb-8 grid grid-cols-2 gap-4">
         <div className="bg-slate-900 text-white p-6 rounded-3xl col-span-2">
-            <p className="text-[10px] font-black uppercase tracking-widest opacity-50 mb-1">Corte del Periodo</p>
-            <p className="text-4xl font-black italic tracking-tighter italic">$ {totalSales.toFixed(2)}</p>
+          <p className="text-[10px] font-black uppercase tracking-widest opacity-50 mb-1">Corte del Periodo</p>
+          <p className="text-4xl font-black italic tracking-tighter italic">$ {totalSales.toFixed(2)}</p>
         </div>
       </section>
 
@@ -155,7 +155,7 @@ export default function ReportView() {
               <div className="flex-1">
                 <p className="font-bold text-slate-800 text-sm">{(t as any).products?.name || 'Varios'}</p>
                 <p className="text-[9px] text-slate-400 font-bold">
-                    {new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {new Date(t.created_at).toLocaleDateString([], { day: '2-digit', month: 'short' })}
+                  {new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {new Date(t.created_at).toLocaleDateString([], { day: '2-digit', month: 'short' })}
                 </p>
               </div>
               <p className={`font-black tracking-tighter ${t.type === 'sale' ? 'text-slate-900' : 'text-green-600'}`}>

@@ -3,8 +3,8 @@
  * A mobile-first scanner designed for one-hand operation in a store.
  */
 
-import React, { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { supabase } from '../lib/supabase';
 
@@ -21,21 +21,21 @@ export default function FastScan() {
 
   useEffect(() => {
     async function validateToken() {
-        const { data } = await supabase.from('report_tokens').select('store_id').eq('token', token).gt('expires_at', new Date().toISOString()).single();
-        if (data) setStoreId(data.store_id);
+      const { data } = await supabase.from('report_tokens').select('store_id').eq('token', token).gt('expires_at', new Date().toISOString()).single();
+      if (data) setStoreId(data.store_id);
     }
     validateToken();
 
-    const scanner = new Html5QrcodeScanner("reader", { 
-        fps: 10, 
-        qrbox: 250, 
-        formatsToSupport: [ Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.UPC_A ] 
+    const scanner = new Html5QrcodeScanner("reader", {
+      fps: 10,
+      qrbox: 250,
+      formatsToSupport: [Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.UPC_A]
     }, false);
 
     scanner.render((result) => {
-        setScannedResult(result);
-        lookupProduct(result);
-        scanner.clear();
+      setScannedResult(result);
+      lookupProduct(result);
+      scanner.clear();
     }, (err) => { /* ignore normal scanning errors */ });
 
     return () => { scanner.clear(); };
@@ -52,11 +52,11 @@ export default function FastScan() {
     if (!foundProduct || !storeId) return;
     setLoading(true);
     const change = type === 'sale' ? -1 : 1;
-    
+
     await supabase.from('inventory_batches').insert({ product_id: foundProduct.id, quantity_original: 1, quantity_remaining: 1, unit_cost: 0 }); // Simplified for scanner
     await supabase.from('products').update({ current_stock: foundProduct.current_stock + change }).eq('id', foundProduct.id);
     await supabase.from('transactions').insert({ store_id: storeId, product_id: foundProduct.id, type, quantity_change: change, total_amount: type === 'sale' ? foundProduct.base_price : 0 });
-    
+
     alert(`✅ ${type === 'sale' ? 'Venta' : 'Surtido'} de ${foundProduct.name} Guardada.`);
     window.location.reload(); // Reset for next scan
   };
@@ -64,14 +64,14 @@ export default function FastScan() {
   const handleRegister = async () => {
     if (!newName || !newPrice || !storeId) return;
     setLoading(true);
-    const { data } = await supabase.from('products').insert({ 
-        store_id: storeId, 
-        name: newName, 
-        base_price: parseFloat(newPrice), 
-        current_stock: 0, 
-        barcode: scannedResult 
+    const { data } = await supabase.from('products').insert({
+      store_id: storeId,
+      name: newName,
+      base_price: parseFloat(newPrice),
+      current_stock: 0,
+      barcode: scannedResult
     }).select().single();
-    
+
     setFoundProduct(data);
     setIsRegistering(false);
     setLoading(false);
