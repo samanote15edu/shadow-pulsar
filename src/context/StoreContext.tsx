@@ -33,15 +33,37 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     async function fetchStores() {
       try {
-        // 1. Get current authenticated user
+        setLoading(true);
+
+        // 1. Check for Magic Link (?s=ID)
+        const params = new URLSearchParams(window.location.search);
+        const magicStoreId = params.get('s');
+
+        if (magicStoreId) {
+          console.log('Cargando tienda vía Magic Link:', magicStoreId);
+          const { data: magicStore, error: magicError } = await supabase
+            .from('stores')
+            .select('*')
+            .eq('id', magicStoreId)
+            .single();
+
+          if (!magicError && magicStore) {
+            setStores([magicStore]);
+            setSelectedStore(magicStore);
+            setIsDemo(false);
+            setLoading(false);
+            return;
+          }
+        }
+
+        // 2. Fallback to standard Auth login
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
-          console.warn('Usando modo Demo (No hay sesión de Supabase)');
+          console.warn('Usando modo Demo (No hay sesión ni Magic Link)');
           setLoading(false);
           return;
         }
 
-        // 2. Fetch stores where user is the owner
         const { data: storesList, error: storesError } = await supabase
           .from('stores')
           .select('*')
