@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { supabase } from '../lib/supabase';
-import { BarcodeScanner } from './BarcodeScanner';
 
 /**
  * A mobile-first scanner designed for one-hand operation in a store.
@@ -10,8 +9,6 @@ import { BarcodeScanner } from './BarcodeScanner';
 
 export default function FastScan() {
   const { token } = useParams<{ token: string }>();
-  const [isScanning, setIsScanning] = useState(false);
-  const [scannedResult, setScannedResult] = useState<string | null>(null);
   const [productData, setProductData] = useState<any | null>(null);
   const [storeId, setStoreId] = useState<string | null>(null);
   const [result, setResult] = useState<string>('Esperando escaneo...');
@@ -37,9 +34,8 @@ export default function FastScan() {
       false
     );
 
-    scanner.render((result) => {
-      setScannedResult(result);
-      lookupProduct(result);
+    scanner.render((resultString) => {
+      lookupProduct(resultString);
       scanner.clear();
     }, () => { /* ignore normal scanning errors */ });
 
