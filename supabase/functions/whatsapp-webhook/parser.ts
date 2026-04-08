@@ -13,7 +13,7 @@ export interface FiadoItem {
 
 export interface CommandResponse {
   responseText: string;
-  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details';
+  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation';
   metadata?: any;
 }
 
@@ -101,19 +101,36 @@ export async function executeCommand(
     const qty = parseInt(restockMatch[1], 10);
     const productName = restockMatch[2].trim();
 
-    // Check if product exists
-    const { data: product } = await supabase
+    // Improved search: Exact first, then partial
+    const { data: exactProduct } = await supabase
       .from('products')
       .select('*')
       .ilike('name', productName)
       .eq('store_id', storeId)
       .maybeSingle();
 
-    if (product) {
+    if (exactProduct) {
       return {
-        responseText: `📦 *Surtido: ${product.name}*\n\n¿Cuánto te costó cada unidad esta vez? (Costo anterior: $${product.last_cost_price || 0})`,
+        responseText: `📦 *Surtido: ${exactProduct.name}*\n\n¿Cuánto te costó cada unidad esta vez? (Costo anterior: $${exactProduct.last_cost_price || 0})`,
         nextStep: 'awaiting_product_cost',
-        metadata: { productId: product.id, qty, productName: product.name }
+        metadata: { productId: exactProduct.id, qty, productName: exactProduct.name }
+      };
+    }
+
+    // If no exact match, try partial match (%name%)
+    const { data: similarProds } = await supabase
+      .from('products')
+      .select('*')
+      .ilike('name', `%${productName}%`)
+      .eq('store_id', storeId)
+      .limit(1);
+
+    if (similarProds && similarProds.length > 0) {
+      const similar = similarProds[0];
+      return {
+        responseText: `🔍 *He encontrado "${similar.name}"*\n\n¿Es el mismo producto que "${productName}"? (*SÍ* / *NO*)`,
+        nextStep: 'awaiting_similarity_confirmation',
+        metadata: { productId: similar.id, qty, productName: similar.name, newName: productName }
       };
     } else {
       // New product flow

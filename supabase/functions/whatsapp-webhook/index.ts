@@ -161,6 +161,25 @@ serve(async (req) => {
         await supabase.from('registration_states').delete().eq('whatsapp_number', from);
       }
 
+      // ESTADO: Confirmación de Similitud (Sugerencia de producto existente)
+      else if (step === 'awaiting_similarity_confirmation') {
+        if (upperText === 'SÍ' || upperText === 'SI') {
+          // Usar el producto existente sugerido
+          await supabase.from('registration_states').update({
+            step: 'awaiting_product_cost',
+            metadata: { productId: metadata.productId, qty: metadata.qty, productName: metadata.productName }
+          }).eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `📦 *Surtido: ${metadata.productName}*\n\n¿Cuánto te costó cada unidad esta vez?`);
+        } else {
+          // Proceder como producto nuevo
+          await supabase.from('registration_states').update({
+            step: 'awaiting_new_product_details',
+            metadata: { productName: metadata.newName, qty: metadata.qty }
+          }).eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `✨ *¡Nuevo Producto!* ✨\n\nRegistraremos "${metadata.newName}" por separado.\n\nPor favor, dime:\n1. ¿Cuánto te costó?\n2. ¿A cuánto lo venderás?\n\n(Ejemplo: 12 y 20)`);
+        }
+      }
+
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
       return new Response('OK', { status: 200 });
     }
