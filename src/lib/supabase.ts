@@ -7,8 +7,6 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Supabase credentials missing. Falling back to Demo Mode placeholders.');
 }
 
-console.log('DEBUG: Supabase Config - URL:', supabaseUrl ? 'Detectada' : 'MISSING', 'Key:', supabaseAnonKey ? 'Detectada' : 'MISSING');
-
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co', 
   supabaseAnonKey || 'placeholder'

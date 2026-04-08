@@ -13,6 +13,7 @@ interface StoreContextType {
   setSelectedStore: (store: Store) => void;
   loading: boolean;
   isDemo: boolean;
+  userName: string | null;
   logout: () => Promise<void>;
 }
 
@@ -29,6 +30,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
   const [isDemo, setIsDemo] = useState(false);
+  const [userName, setUserName] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchStores() {
@@ -42,7 +44,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         if (magicStoreId) {
           setIsDemo(false); 
-          console.log('DEBUG: Magic ID detectado:', magicStoreId);
           const { data: magicStore, error: magicError } = await supabase
             .from('stores')
             .select('*')
@@ -50,13 +51,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             .single();
 
           if (!magicError && magicStore) {
-            console.log('DEBUG: Tienda cargada correctamente:', magicStore.name);
             setStores([magicStore]);
             setSelectedStore(magicStore);
+            
+            // Fetch owner name for magic link
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('full_name')
+              .eq('store_id', magicStoreId)
+              .single();
+            
+            if (profile) setUserName(profile.full_name);
+            
             setLoading(false);
             return;
-          } else {
-            console.error('DEBUG: Error cargando tienda o no encontrada:', magicError);
           }
         }
 
@@ -79,6 +87,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!storesError && storesList && storesList.length > 0) {
           setStores(storesList);
           setSelectedStore(storesList[0]);
+          setUserName(user.user_metadata?.full_name || null);
           setIsDemo(false);
         }
       } catch (err) {
@@ -97,7 +106,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   return (
-    <StoreContext.Provider value={{ selectedStore, stores, setSelectedStore, loading, isDemo, logout }}>
+    <StoreContext.Provider value={{ selectedStore, stores, setSelectedStore, loading, isDemo, userName, logout }}>
       {children}
     </StoreContext.Provider>
   );

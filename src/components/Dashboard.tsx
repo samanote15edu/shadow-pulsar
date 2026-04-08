@@ -34,7 +34,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onOpenScan }: DashboardProps) {
-  const { selectedStore, stores, setSelectedStore, loading, isDemo, logout } = useStoreContext();
+  const { selectedStore, stores, setSelectedStore, loading, isDemo, userName, logout } = useStoreContext();
   const [products, setProducts] = useState<Product[]>([]);
   const [recentActivity, setRecentActivity] = useState<Transaction[]>([]);
   const [stats, setStats] = useState({ sales: 0, lowStock: 0, fiado: 0 });
@@ -114,7 +114,19 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
               {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           )}
-          <button onClick={() => !isDemo && logout()} className="w-10 h-10 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400 font-bold hover:border-sky-400 transition-colors">{isDemo ? 'M' : 'CS'}</button>
+          <button 
+            onClick={() => !isDemo && logout()} 
+            className="w-10 h-10 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400 font-bold hover:border-sky-400 transition-colors shadow-lg shadow-sky-500/10"
+            title={userName || 'Usuario'}
+          >
+            {(() => {
+              if (isDemo) return 'M';
+              if (!userName) return 'CS';
+              const parts = userName.trim().split(/\s+/);
+              if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+              return (parts[0][0] + (parts[parts.length - 1][0] || '')).toUpperCase();
+            })()}
+          </button>
         </div>
       </header>
 
