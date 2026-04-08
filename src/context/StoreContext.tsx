@@ -35,13 +35,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         setLoading(true);
 
-        // 1. Check for Magic Link (?s=ID)
-        const params = new URLSearchParams(window.location.search);
-        const magicStoreId = params.get('s');
+        // 1. Check for Magic Link (Resilient check)
+        const fullUrl = window.location.href;
+        const magicMatch = fullUrl.match(/[?&]s=([^&?#\s]+)/);
+        const magicStoreId = magicMatch ? magicMatch[1].trim() : null;
 
         if (magicStoreId) {
-          setIsDemo(false); // Optimistically stop demo mode
-          console.log('Cargando tienda vía Magic Link:', magicStoreId);
+          setIsDemo(false); 
+          console.log('DEBUG: Magic ID detectado:', magicStoreId);
           const { data: magicStore, error: magicError } = await supabase
             .from('stores')
             .select('*')
@@ -49,10 +50,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             .single();
 
           if (!magicError && magicStore) {
+            console.log('DEBUG: Tienda cargada correctamente:', magicStore.name);
             setStores([magicStore]);
             setSelectedStore(magicStore);
             setLoading(false);
             return;
+          } else {
+            console.error('DEBUG: Error cargando tienda o no encontrada:', magicError);
           }
         }
 
