@@ -25,10 +25,10 @@ const DEMO_STORE: Store = {
 };
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [stores, setStores] = useState<Store[]>([DEMO_STORE]);
-  const [selectedStore, setSelectedStore] = useState<Store | null>(DEMO_STORE);
+  const [stores, setStores] = useState<Store[]>([]);
+  const [selectedStore, setSelectedStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(true);
+  const [isDemo, setIsDemo] = useState(false);
 
   useEffect(() => {
     async function fetchStores() {
@@ -40,6 +40,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const magicStoreId = params.get('s');
 
         if (magicStoreId) {
+          setIsDemo(false); // Optimistically stop demo mode
           console.log('Cargando tienda vía Magic Link:', magicStoreId);
           const { data: magicStore, error: magicError } = await supabase
             .from('stores')
@@ -50,7 +51,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (!magicError && magicStore) {
             setStores([magicStore]);
             setSelectedStore(magicStore);
-            setIsDemo(false);
             setLoading(false);
             return;
           }
@@ -59,7 +59,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // 2. Fallback to standard Auth login
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
-          console.warn('Usando modo Demo (No hay sesión ni Magic Link)');
+          console.warn('Usando modo Demo (Sin sesión ni Magic Link)');
+          setStores([DEMO_STORE]);
+          setSelectedStore(DEMO_STORE);
+          setIsDemo(true);
           setLoading(false);
           return;
         }

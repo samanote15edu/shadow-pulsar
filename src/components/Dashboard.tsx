@@ -35,9 +35,9 @@ interface DashboardProps {
 
 export default function Dashboard({ onOpenScan }: DashboardProps) {
   const { selectedStore, stores, setSelectedStore, loading, isDemo, logout } = useStoreContext();
-  const [products, setProducts] = useState<Product[]>(DUMMY_PRODUCTS);
-  const [recentActivity, setRecentActivity] = useState<Transaction[]>(DUMMY_ACTIVITIES);
-  const [stats, setStats] = useState({ sales: 1250, lowStock: 5, fiado: 840 });
+  const [products, setProducts] = useState<Product[]>([]);
+  const [recentActivity, setRecentActivity] = useState<Transaction[]>([]);
+  const [stats, setStats] = useState({ sales: 0, lowStock: 0, fiado: 0 });
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -53,7 +53,13 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   };
 
   useEffect(() => {
-    if (!selectedStore || isDemo) return;
+    if (isDemo) {
+      setProducts(DUMMY_PRODUCTS);
+      setRecentActivity(DUMMY_ACTIVITIES);
+      setStats({ sales: 1250, lowStock: 5, fiado: 840 });
+      return;
+    }
+    if (!selectedStore) return;
     async function fetchDashboardData() {
       const { data: prods } = await supabase.from('products').select('*').eq('store_id', selectedStore?.id).order('name');
       if (prods && prods.length > 0) {
