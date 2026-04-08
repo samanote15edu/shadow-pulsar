@@ -1,23 +1,20 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js'
 
 const SUPABASE_URL = 'https://yrjjajjmhirwkgldulzl.supabase.co';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-async function checkUser() {
-  console.log('Checking profiles for whatsapp_number... (No icons used)');
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('whatsapp_number, store_id')
-    .limit(10);
+async function check() {
+  console.log("Checking profiles and states...");
+  
+  const { data: profiles, error: pErr } = await supabase.from('profiles').select('*');
+  console.log("Profiles in DB:", profiles?.length || 0);
+  if (profiles) profiles.forEach(p => console.log(`- ${p.whatsapp_number}: ${p.full_name}`));
 
-  if (error) {
-    console.error('Error:', error);
-    return;
-  }
-
-  console.log('Stored profiles:', JSON.stringify(data, null, 2));
+  const { data: states, error: sErr } = await supabase.from('registration_states').select('*');
+  console.log("States in DB:", states?.length || 0);
+  if (states) states.forEach(s => console.log(`- ${s.whatsapp_number}: ${s.step}`));
 }
 
-checkUser();
+check();
