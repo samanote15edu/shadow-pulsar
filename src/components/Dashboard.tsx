@@ -8,6 +8,8 @@ interface Product {
   name: string;
   current_stock: number;
   min_stock_alert: number;
+  base_price: number;
+  last_cost_price: number;
 }
 
 interface Transaction {
@@ -16,12 +18,13 @@ interface Transaction {
   quantity_change: number;
   created_at: string;
   product_name?: string;
+  unit_price?: number;
 }
 
 const DUMMY_PRODUCTS: Product[] = [
-  { id: '1', name: 'Coca Cola 600ml', current_stock: 48, min_stock_alert: 10 },
-  { id: '2', name: 'Pan Blanco', current_stock: 8, min_stock_alert: 15 },
-  { id: '3', name: 'Leche Entera', current_stock: 14, min_stock_alert: 5 },
+  { id: '1', name: 'Coca Cola 600ml', current_stock: 48, min_stock_alert: 10, base_price: 20, last_cost_price: 12 },
+  { id: '2', name: 'Pan Blanco', current_stock: 8, min_stock_alert: 15, base_price: 35, last_cost_price: 28 },
+  { id: '3', name: 'Leche Entera', current_stock: 14, min_stock_alert: 5, base_price: 25, last_cost_price: 18 },
 ];
 
 const DUMMY_ACTIVITIES: Transaction[] = [
@@ -160,34 +163,43 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
 
         <div className="lg:col-span-3 glass-pane rounded-3xl overflow-hidden mt-4">
           <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-white/[0.02]">
-            <h2 className="text-lg font-semibold">Resumen de Stock</h2>
+            <h2 className="text-lg font-semibold">Inventario de Productos</h2>
             <div className="flex gap-2">
               <button onClick={onOpenScan} className="bg-sky-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-sky-600 transition-colors flex items-center gap-2 shadow-lg shadow-sky-500/20 uppercase tracking-widest"><span>📷</span> Escanear</button>
               <button onClick={() => setIsAddModalOpen(true)} className="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-700 transition-colors uppercase tracking-widest">+ Nuevo</button>
             </div>
           </div>
+          
           <div className="overflow-x-auto">
-            <table className="w-full text-left">
+            <table className="w-full text-left hidden md:table">
               <thead>
                 <tr className="text-slate-500 text-xs font-black uppercase tracking-widest border-b border-slate-800">
                   <th className="p-4 pl-6">Producto</th>
-                  <th className="p-4 text-center">Stock Actual</th>
+                  <th className="p-4 text-center">Stock</th>
+                  <th className="p-4 text-center">Costo</th>
+                  <th className="p-4 text-center">Venta</th>
                   <th className="p-4">Estado</th>
                   <th className="p-4 text-right pr-6">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
                 {products.length > 0 ? products.map(p => (
-                  <ProductRow key={p.id} name={p.name} stock={p.current_stock} min={p.min_stock_alert} status={p.current_stock <= p.min_stock_alert ? 'Bajo' : 'Suficiente'} color={p.current_stock <= p.min_stock_alert ? 'amber' : 'emerald'} />
-                )) : <tr><td colSpan={4} className="p-8 text-center text-slate-500">No hay productos registrados.</td></tr>}
+                  <ProductRow key={p.id} product={p} />
+                )) : <tr><td colSpan={6} className="p-8 text-center text-slate-500">No hay productos registrados.</td></tr>}
               </tbody>
             </table>
+
+            <div className="md:hidden divide-y divide-slate-800/50">
+              {products.length > 0 ? products.map(p => (
+                <ProductCard key={p.id} product={p} />
+              )) : <div className="p-8 text-center text-slate-500">No hay productos registrados.</div>}
+            </div>
           </div>
         </div>
       </main>
 
       <AddProductModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onAdd={(newProd) => {
-        const prod: Product = { id: Math.random().toString(36).substr(2, 9), name: newProd.name, current_stock: newProd.stock, min_stock_alert: 5 };
+        const prod: Product = { id: Math.random().toString(36).substr(2, 9), name: newProd.name, current_stock: newProd.stock, min_stock_alert: 5, base_price: 0, last_cost_price: 0 };
         setProducts(prev => [prod, ...prev]);
       }} />
     </div>
@@ -215,16 +227,57 @@ const ActivityItem: React.FC<{ time: string; msg: string; user: string; icon: st
   </div>
 );
 
-const ProductRow: React.FC<{ name: string; stock: number; min: number; status: string; color: string }> = ({ name, stock, min, status, color }) => (
-  <tr className="hover:bg-white/[0.02] transition-colors group border-b border-slate-900 last:border-0">
-    <td className="p-4 pl-6 text-sm font-semibold text-slate-200">{name}</td>
-    <td className="p-4 text-center text-sm font-mono">{stock} <span className="text-slate-600 text-xs">/ {min}</span></td>
-    <td className="p-4">
-      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase bg-${color}-500/10 text-${color}-400`}>
-        <span className={`w-1.5 h-1.5 rounded-full bg-${color}-400`}></span>
-        {status}
-      </span>
-    </td>
-    <td className="p-4 text-right pr-6"><button className="text-slate-600 hover:text-white transition-colors text-xs font-black italic uppercase tracking-tighter">Editar</button></td>
-  </tr>
-);
+const ProductRow: React.FC<{ product: Product }> = ({ product }) => {
+  const isLow = product.current_stock <= product.min_stock_alert;
+  const color = isLow ? 'amber' : 'emerald';
+  const status = isLow ? 'Bajo' : 'Suficiente';
+
+  return (
+    <tr className="hover:bg-white/[0.02] transition-colors group border-b border-slate-900 last:border-0">
+      <td className="p-4 pl-6 text-sm font-semibold text-slate-200">{product.name}</td>
+      <td className="p-4 text-center text-sm font-mono">{product.current_stock} <span className="text-slate-600 text-xs">/ {product.min_stock_alert}</span></td>
+      <td className="p-4 text-center text-sm font-mono text-slate-400">${product.last_cost_price}</td>
+      <td className="p-4 text-center text-sm font-mono text-sky-400 font-bold">${product.base_price}</td>
+      <td className="p-4">
+        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase bg-${color}-500/10 text-${color}-400`}>
+          <span className={`w-1.5 h-1.5 rounded-full bg-${color}-400`}></span>
+          {status}
+        </span>
+      </td>
+      <td className="p-4 text-right pr-6"><button className="text-slate-600 hover:text-white transition-colors text-xs font-black italic uppercase tracking-tighter">Editar</button></td>
+    </tr>
+  );
+};
+
+const ProductCard: React.FC<{ product: Product }> = ({ product }) => {
+  const isLow = product.current_stock <= product.min_stock_alert;
+  const color = isLow ? 'amber' : 'emerald';
+  const status = isLow ? 'Bajo' : 'Suficiente';
+
+  return (
+    <div className="p-4 hover:bg-white/[0.02] transition-colors">
+      <div className="flex justify-between items-start mb-4">
+        <h3 className="font-bold text-slate-100">{product.name}</h3>
+        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase bg-${color}-500/10 text-${color}-400`}>
+          <span className={`w-1.5 h-1.5 rounded-full bg-${color}-400`}></span>
+          {status}
+        </span>
+      </div>
+      
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-slate-900/50 p-3 rounded-2xl border border-white/[0.03]">
+          <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-1">Stock</p>
+          <p className="text-sm font-mono font-bold text-slate-100">{product.current_stock}</p>
+        </div>
+        <div className="bg-slate-900/50 p-3 rounded-2xl border border-white/[0.03]">
+          <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-1">Costo</p>
+          <p className="text-sm font-mono font-bold text-slate-400">${product.last_cost_price}</p>
+        </div>
+        <div className="bg-sky-500/5 p-3 rounded-2xl border border-sky-500/10">
+          <p className="text-sky-500/50 text-[9px] font-black uppercase tracking-widest mb-1">Venta</p>
+          <p className="text-sm font-mono font-bold text-sky-400">${product.base_price}</p>
+        </div>
+      </div>
+    </div>
+  );
+};

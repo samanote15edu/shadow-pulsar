@@ -139,6 +139,28 @@ serve(async (req) => {
         }
       }
 
+      // ESTADO: Confirmación Genérica (SÍ/NO)
+      else if (step === 'awaiting_confirmation') {
+        if (upperText === 'SÍ' || upperText === 'SI') {
+          // Lógica según el tipo de acción
+          if (metadata.type === 'sale') {
+            await supabase.rpc('increment_stock', { row_id: metadata.productId, amount: -metadata.qty });
+            await supabase.from('transactions').insert({
+              store_id: profile.store_id,
+              product_id: metadata.productId,
+              type: 'sale',
+              quantity_change: -metadata.qty,
+              unit_price: metadata.price,
+              total_amount: metadata.total
+            });
+            await sendWhatsAppMessage(from, `✅ *Venta Registrada*\n\nProducto: ${metadata.productName}\nTotal: $${metadata.total}\n\nEl stock ha sido actualizado.`);
+          }
+        } else {
+          await sendWhatsAppMessage(from, "Operación cancelada. ❌");
+        }
+        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+      }
+
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
       return new Response('OK', { status: 200 });
     }

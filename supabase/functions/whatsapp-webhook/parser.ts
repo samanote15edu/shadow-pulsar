@@ -125,6 +125,31 @@ export async function executeCommand(
     }
   }
 
+  // 4. SALE PARSER (e.g. "Venta: 2 Coca Cola" or simply "2 Coca Cola")
+  const saleMatch = lowerMsg.match(/^(?:venta:?\s*)?(\d+)\s+(.+)$/i);
+  if (saleMatch) {
+    const qty = parseInt(saleMatch[1]);
+    const productName = saleMatch[2].trim();
+
+    const { data: product } = await supabase
+      .from('products')
+      .select('*')
+      .eq('store_id', storeId)
+      .ilike('name', `%${productName}%`)
+      .maybeSingle();
+
+    if (product) {
+      const total = qty * product.base_price;
+      return {
+        responseText: `🥤 *Confirmar Venta*\n\nProducto: ${product.name}\nCantidad: ${qty}\nTotal: *$${total}*\n\n¿Confirmas la venta? (*SÍ* / *NO*)`,
+        nextStep: 'awaiting_confirmation',
+        metadata: { type: 'sale', productId: product.id, qty, productName: product.name, total, price: product.base_price }
+      };
+    } else {
+      return { responseText: `❌ No encontré "${productName}" en tu inventario. Asegúrate de que el nombre sea correcto o usa *Surtido* para agregarlo.` };
+    }
+  }
+
   // 4. OTHER ROBUST PARSERS (Sale / Nuevo)
   // ... existing logic ...
 
