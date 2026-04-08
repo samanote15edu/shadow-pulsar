@@ -84,7 +84,16 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   if (loading) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 gap-4">
       <div className="w-12 h-12 border-4 border-sky-500/20 border-t-sky-500 rounded-full animate-spin"></div>
-      <p className="animate-pulse">Cargando Tiendita...</p>
+      <p className="animate-pulse font-medium tracking-wide">Cargando Don Chingon...</p>
+    </div>
+  );
+
+  if (!selectedStore && !loading) return (
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+      <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center text-4xl mb-6">🚫</div>
+      <h2 className="text-xl font-bold mb-2">Tienda no encontrada</h2>
+      <p className="text-slate-400 text-sm mb-8">No pudimos cargar la información de tu tienda. Es posible que el enlace haya expirado o sea incorrecto.</p>
+      <button onClick={() => window.location.reload()} className="bg-sky-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-sky-500/20">Reintentar</button>
     </div>
   );
 

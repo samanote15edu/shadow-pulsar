@@ -13,7 +13,7 @@ export interface FiadoItem {
 
 export interface CommandResponse {
   responseText: string;
-  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price';
+  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details';
   metadata?: any;
 }
 
@@ -29,8 +29,25 @@ export async function executeCommand(
   const isAdmin = userRole === 'owner' || userRole === 'manager';
 
   // 1. Check for basic queries (Inventario / Reporte / Ayuda)
-  if (lowerMsg === 'inventario') {
-     // ... Standard inventory logic here ...
+  if (lowerMsg === 'inventario' || lowerMsg === 'stock' || lowerMsg === 'todo') {
+     const { data: prods } = await supabase
+       .from('products')
+       .select('*')
+       .eq('store_id', storeId)
+       .order('name', { ascending: true });
+
+     if (!prods || prods.length === 0) {
+       return { responseText: "📦 Tu inventario está vacío por ahora. ¡Usa 'Surtido' para agregar productos!" };
+     }
+
+     let report = "📦 *TU INVENTARIO ACTUAL*\n";
+     report += "---------------------------\n";
+     prods.forEach(p => {
+       report += `• *${p.name}*: ${p.current_stock} pzas ($${p.base_price})\n`;
+     });
+     report += "---------------------------";
+
+     return { responseText: report };
   }
 
   // 2. MULTI-ITEM FIADO PARSER (e.g. "Fiado Maria: 2 cocas de 600, 1 pan de 10")
@@ -78,7 +95,37 @@ export async function executeCommand(
     };
   }
 
-  // 3. OTHER ROBUST PARSERS (Surtido / Sale / Nuevo)
+  // 3. STOCK RESTOCK PARSER (e.g. "Surtido: 10 Sabritas" or "Surtido 5 Leche")
+  const restockMatch = cleanMsg.match(/^Surtido[:\s]\s*(\d+)\s+(.+)$/i);
+  if (restockMatch) {
+    const qty = parseInt(restockMatch[1], 10);
+    const productName = restockMatch[2].trim();
+
+    // Check if product exists
+    const { data: product } = await supabase
+      .from('products')
+      .select('*')
+      .ilike('name', productName)
+      .eq('store_id', storeId)
+      .maybeSingle();
+
+    if (product) {
+      return {
+        responseText: `📦 *Surtido: ${product.name}*\n\n¿Cuánto te costó cada unidad esta vez? (Costo anterior: $${product.last_cost_price || 0})`,
+        nextStep: 'awaiting_product_cost',
+        metadata: { productId: product.id, qty, productName: product.name }
+      };
+    } else {
+      // New product flow
+      return {
+        responseText: `✨ *¡Nuevo Producto!* ✨\n\nNo encontré "${productName}" en tu inventario.\n\nPor favor, dime:\n1. ¿Cuánto te costó?\n2. ¿A cuánto lo venderás?\n\n(Ejemplo: 12 y 20)`,
+        nextStep: 'awaiting_new_product_details',
+        metadata: { productName, qty }
+      };
+    }
+  }
+
+  // 4. OTHER ROBUST PARSERS (Sale / Nuevo)
   // ... existing logic ...
 
   // 5. DASHBOARD ON DEMAND (Keywords: Sistema, Compu, Link, Panel, Tablero)
@@ -86,14 +133,8 @@ export async function executeCommand(
   if (dashboardKeywords.includes(lowerMsg)) {
     if (userRole !== 'owner' && userRole !== 'manager') return { responseText: "❌ Solo los administradores pueden acceder al panel completo." };
     
-    // Generate an ADMIN Token (Expires in 4 hours)
-    const { data: tokenObj } = await supabase.from('report_tokens').insert({ 
-        store_id: storeId,
-        access_level: 'admin' 
-    }).select().single();
-
-    const magicLink = `https://yrjjajjmhirwkgldulzl.supabase.co/report/${tokenObj.token}`;
-    return { responseText: `🖥️ *Acceso al Panel de Control*\n\nAQUÍ TIENES TU LINK SEGURO:\n${magicLink}\n\n⚠️ Este link expira en 4 horas.` };
+    const magicLink = `https://shadow-pulsar.vercel.app/?s=${storeId}`;
+    return { responseText: `🖥️ *Acceso al Panel de Control*\n\nAQUÍ TIENES TU LINK SEGURO:\n${magicLink}` };
   }
 
   // 6. BARCODE SCANNER (Keywords: Escanear, Lector, Cámara, Código)

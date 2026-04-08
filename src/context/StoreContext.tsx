@@ -37,10 +37,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         setLoading(true);
 
-        // 1. Check for Magic Link (Resilient check)
-        const fullUrl = window.location.href;
-        const magicMatch = fullUrl.match(/[?&]s=([^&?#\s]+)/);
-        const magicStoreId = magicMatch ? magicMatch[1].trim() : null;
+        // 1. Check for Magic Link (Robust URLSearchParams)
+        const params = new URLSearchParams(window.location.search);
+        const magicStoreId = params.get('s')?.trim();
 
         if (magicStoreId) {
           setIsDemo(false); 
@@ -59,12 +58,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               .from('profiles')
               .select('full_name')
               .eq('store_id', magicStoreId)
-              .single();
+              .maybeSingle();
             
             if (profile) setUserName(profile.full_name);
             
             setLoading(false);
             return;
+          } else if (magicError) {
+            console.error('Error cargando tienda mágica:', magicError);
           }
         }
 

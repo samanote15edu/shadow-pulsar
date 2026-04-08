@@ -8,30 +8,15 @@ const WHATSAPP_ACCESS_TOKEN = Deno.env.get('WHATSAPP_ACCESS_TOKEN');
 const WHATSAPP_PHONE_ID = Deno.env.get('WHATSAPP_PHONE_ID');
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-// --- LÓGICA DE PARSEO ---
-async function executeCommand(message: string, sb: any, storeId: string) {
-  const cleanMsg = message.trim();
-  const lowerMsg = cleanMsg.toLowerCase();
-  
-  if (lowerMsg.includes('link') || lowerMsg.includes('panel')) {
-    return { responseText: `🖥️ *Tu Panel Real*:\nhttps://shadow-pulsar.vercel.app/?s=${storeId}` };
-  }
+import { executeCommand } from './parser.ts';
 
-  if (lowerMsg.includes('inventario')) {
-    const { data: prods } = await sb.from('products').select('*').eq('store_id', storeId).limit(5);
-    if (!prods || prods.length === 0) return { responseText: "Tu inventario está vacío. 📦" };
-    let list = "📦 *Tu Inventario (Top 5)*:\n";
-    prods.forEach((p: any) => list += `- ${p.name}: ${p.current_stock} pzas\n`);
-    return { responseText: list };
-  }
-
-  return { responseText: null };
-}
-
-// Envío con Timeout para evitar que la función se cuelgue si Meta responde lento
+// --- CONFIGURACIÓN ENVÍO ---
 async function sendWhatsAppMessage(to: string, text: string) {
+  const WHATSAPP_ACCESS_TOKEN = Deno.env.get('WHATSAPP_ACCESS_TOKEN');
+  const WHATSAPP_PHONE_ID = Deno.env.get('WHATSAPP_PHONE_ID');
+  
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 segundos max
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   try {
     await fetch(`https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_ID}/messages`, {
@@ -62,19 +47,14 @@ serve(async (req) => {
     const text = (message.text?.body || '').trim();
     const upperText = text.toUpperCase();
 
-    // --- 1. BLOQUEO DE DUPLICADOS (IDEMPOTENCIA ESTRICTA) ---
-    // Intentamos registrar que este mensaje está "en proceso"
+    // --- 1. BLOQUEO DE DUPLICADOS ---
     const { error: lockError } = await supabase
       .from('webhook_idempotency')
       .insert({ id: messageId, status: 'processing' });
 
-    if (lockError) {
-      // Si el ID ya existe, es un reintento de Meta. Ignoramos para evitar duplicados.
-      console.info(`[LOCK] Ignorando reintento: ${messageId}`);
-      return new Response('OK', { status: 200 });
-    }
+    if (lockError) return new Response('OK', { status: 200 });
 
-    // --- 2. CONSULTAS PARALELAS (PARA VELOCIDAD) ---
+    // --- 2. CONSULTAS DE CONTEXTO ---
     const [profileRes, stateRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('whatsapp_number', from).maybeSingle(),
       supabase.from('registration_states').select('*').eq('whatsapp_number', from).maybeSingle()
@@ -85,61 +65,104 @@ serve(async (req) => {
 
     // --- 3. LOGICA PRINCIPAL ---
 
-    // A. Si ya es usuario registrado
+    // A. FLUJO DE CONVERSACIÓN ACTIVA (ESTADOS)
+    if (state) {
+      const { step, metadata } = state;
+
+      // ESTADO: Registro de Tienda (Onboarding)
+      if (step === 'awaiting_store_name') {
+        await supabase.from('registration_states').update({ step: 'awaiting_owner_name', metadata: { store_name: text } }).eq('whatsapp_number', from);
+        await sendWhatsAppMessage(from, `Entendido. Último paso:\n\n¿Cuál es tu nombre completo? (Dueño)`);
+      } 
+      else if (step === 'awaiting_owner_name') {
+        const { data: newStore } = await supabase.from('stores').insert({ name: metadata.store_name }).select().single();
+        await supabase.from('profiles').insert({ whatsapp_number: from, full_name: text, role: 'owner', store_id: newStore.id });
+        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+        await sendWhatsAppMessage(from, `¡Felicidades *${text}*! 🚀 Tu tienda *${metadata.store_name}* ya está registrada.\n\nTU PANEL REAL:\nhttps://shadow-pulsar.vercel.app/?s=${newStore.id}`);
+      }
+      
+      // ESTADO: Costo de Producto (Surtido Existente)
+      else if (step === 'awaiting_product_cost') {
+        const cost = parseFloat(text.replace(/[^0-9.]/g, ''));
+        if (isNaN(cost)) {
+          await sendWhatsAppMessage(from, "❌ Envía solo el número del costo (ej: 12.50)");
+        } else {
+          // Actualizar Costo y Stock
+          await supabase.from('products').update({ last_cost_price: cost }).eq('id', metadata.productId);
+          await supabase.rpc('increment_stock', { row_id: metadata.productId, amount: metadata.qty });
+          
+          // Transacción de Surtido
+          await supabase.from('transactions').insert({
+            store_id: profile.store_id,
+            product_id: metadata.productId,
+            type: 'restock',
+            quantity_change: metadata.qty,
+            unit_price: cost,
+            total_amount: cost * metadata.qty
+          });
+
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `✅ *Surtido Completado*\n\nProducto: ${metadata.productName}\nNuevo Costo: $${cost}\nCantidad: +${metadata.qty}`);
+        }
+      }
+
+      // ESTADO: Detalles de Producto Nuevo (Costo y Venta)
+      else if (step === 'awaiting_new_product_details') {
+        const prices = text.match(/\d+(\.\d+)?/g);
+        if (!prices || prices.length < 2) {
+          await sendWhatsAppMessage(from, "❌ Necesito los 2 precios (Costo y Venta). Ejemplo: '10 y 15'");
+        } else {
+          const cost = parseFloat(prices[0]);
+          const sale = parseFloat(prices[1]);
+
+          // Crear Producto Completo
+          const { data: prod } = await supabase.from('products').insert({
+            store_id: profile.store_id,
+            name: metadata.productName,
+            base_price: sale,
+            last_cost_price: cost,
+            current_stock: metadata.qty
+          }).select().single();
+
+          // Transacción Inicial
+          await supabase.from('transactions').insert({
+            store_id: profile.store_id,
+            product_id: prod.id,
+            type: 'restock',
+            quantity_change: metadata.qty,
+            unit_price: cost,
+            total_amount: cost * metadata.qty
+          });
+
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `✅ *¡Producto Registrado!*\n\n${prod.name}\nCosto: $${cost}\nVenta: $${sale}\nStock: ${metadata.qty}\n\nGanancia por unidad: $${(sale - cost).toFixed(2)}`);
+        }
+      }
+
+      await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
+      return new Response('OK', { status: 200 });
+    }
+
+    // B. COMANDOS ÚNICOS (Si ya tiene perfil)
     if (profile) {
-      const res = await executeCommand(text, supabase, profile.store_id);
+      const res = await executeCommand(text, supabase, profile.store_id, profile.role, from);
+      
+      if (res.nextStep) {
+        await supabase.from('registration_states').insert({ whatsapp_number: from, step: res.nextStep, metadata: res.metadata });
+      }
+      
       if (res.responseText) {
         await sendWhatsAppMessage(from, res.responseText);
       }
+
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
       return new Response('OK', { status: 200 });
     }
 
-    // B. Flujo de Registro (Si NO es usuario)
-    
-    // Paso 1: Inicio (Si no hay estado previo)
-    if (!state) {
-      if (upperText === 'TIENDITA2026') {
-        await supabase.from('registration_states').insert({ whatsapp_number: from, step: 'awaiting_store_name' });
-        await sendWhatsAppMessage(from, "¡Código aceptado! ✅\n\n¿Cómo se llama tu negocio? (Solo el nombre)");
-      }
-      await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
-      return new Response('OK', { status: 200 });
-    }
-
-    // Paso 2: Nombre de la Tienda
-    if (state.step === 'awaiting_store_name') {
-      if (upperText === 'TIENDITA2026') {
-        await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
-        return new Response('OK', { status: 200 });
-      }
-
-      await supabase.from('registration_states').update({ 
-        step: 'awaiting_owner_name', 
-        metadata: { store_name: text } 
-      }).eq('whatsapp_number', from);
-      
-      await sendWhatsAppMessage(from, `Entendido. Último paso:\n\n¿Cuál es tu nombre completo? (Dueño)`);
-    }
-
-    // Paso 3: Nombre del Dueño
-    else if (state.step === 'awaiting_owner_name') {
-      const storeName = state.metadata.store_name;
-      const ownerName = text;
-
-      const { data: newStore, error: storeErr } = await supabase.from('stores').insert({ name: storeName }).select().single();
-      if (storeErr) throw storeErr;
-
-      await supabase.from('profiles').insert({ 
-        whatsapp_number: from, 
-        full_name: ownerName, 
-        role: 'owner', 
-        store_id: newStore.id 
-      });
-
-      await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-      const link = `https://shadow-pulsar.vercel.app/?s=${newStore.id}`;
-      await sendWhatsAppMessage(from, `¡Felicidades *${ownerName}*! 🚀 Tu tienda *${storeName}* ya está registrada.\n\nTU PANEL REAL:\n${link}`);
+    // C. CÓDIGO INICIAL (Si no tiene perfil ni estado)
+    if (upperText === 'TIENDITA2026') {
+      await supabase.from('registration_states').insert({ whatsapp_number: from, step: 'awaiting_store_name' });
+      await sendWhatsAppMessage(from, "¡Código aceptado! ✅\n\n¿Cómo se llama tu negocio?");
     }
 
     // Marcar como completado y salir
