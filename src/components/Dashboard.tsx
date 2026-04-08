@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useStoreContext } from '../context/StoreContext';
 import AddProductModal from './AddProductModal';
+import EditProductModal from './EditProductModal';
 
 interface Product {
   id: string;
@@ -42,6 +43,8 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   const [recentActivity, setRecentActivity] = useState<Transaction[]>([]);
   const [stats, setStats] = useState({ sales: 0, lowStock: 0, fiado: 0 });
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [productToEdit, setProductToEdit] = useState<Product | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -55,6 +58,24 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
     setIsLoggingIn(false);
   };
 
+  const fetchDashboardData = async () => {
+    if (isDemo || !selectedStore) return;
+    const { data: prods } = await supabase.from('products').select('*').eq('store_id', selectedStore?.id).order('name');
+    if (prods && prods.length > 0) {
+      setProducts(prods);
+      setStats(prev => ({ ...prev, lowStock: prods.filter(p => p.current_stock <= p.min_stock_alert).length }));
+    }
+    const { data: activities } = await supabase.from('transactions').select('*, products(name)').eq('store_id', selectedStore?.id).order('created_at', { ascending: false }).limit(5);
+    if (activities && activities.length > 0) {
+      setRecentActivity(activities.map(a => ({ ...a, product_name: (a as any).products?.name || 'Desconocido' })));
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const { data: sales } = await supabase.from('transactions').select('total_amount').eq('store_id', selectedStore?.id).eq('type', 'sale').gte('created_at', today.toISOString());
+    const total = sales?.reduce((acc, s) => acc + (Number(s.total_amount) || 0), 0) || 0;
+    if (total > 0) setStats(prev => ({ ...prev, sales: total }));
+  };
+
   useEffect(() => {
     if (isDemo) {
       setProducts(DUMMY_PRODUCTS);
@@ -63,26 +84,15 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       return;
     }
     if (!selectedStore) return;
-    async function fetchDashboardData() {
-      const { data: prods } = await supabase.from('products').select('*').eq('store_id', selectedStore?.id).order('name');
-      if (prods && prods.length > 0) {
-        setProducts(prods);
-        setStats(prev => ({ ...prev, lowStock: prods.filter(p => p.current_stock <= p.min_stock_alert).length }));
-      }
-      const { data: activities } = await supabase.from('transactions').select('*, products(name)').eq('store_id', selectedStore?.id).order('created_at', { ascending: false }).limit(5);
-      if (activities && activities.length > 0) {
-        setRecentActivity(activities.map(a => ({ ...a, product_name: (a as any).products?.name || 'Desconocido' })));
-      }
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const { data: sales } = await supabase.from('transactions').select('total_amount').eq('store_id', selectedStore?.id).eq('type', 'sale').gte('created_at', today.toISOString());
-      const total = sales?.reduce((acc, s) => acc + (Number(s.total_amount) || 0), 0) || 0;
-      if (total > 0) setStats(prev => ({ ...prev, sales: total }));
-    }
     fetchDashboardData();
     const sub = supabase.channel('table-db-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'transactions', filter: `store_id=eq.${selectedStore.id}` }, () => fetchDashboardData()).subscribe();
     return () => { supabase.removeChannel(sub); };
   }, [selectedStore, isDemo]);
+
+  const handleEditClick = (product: Product) => {
+    setProductToEdit(product);
+    setIsEditModalOpen(true);
+  };
 
   if (loading) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 gap-4">
@@ -184,14 +194,14 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
               </thead>
               <tbody className="divide-y divide-slate-800/50">
                 {products.length > 0 ? products.map(p => (
-                  <ProductRow key={p.id} product={p} />
+                  <ProductRow key={p.id} product={p} onEdit={() => handleEditClick(p)} />
                 )) : <tr><td colSpan={6} className="p-8 text-center text-slate-500">No hay productos registrados.</td></tr>}
               </tbody>
             </table>
 
             <div className="md:hidden divide-y divide-slate-800/50">
               {products.length > 0 ? products.map(p => (
-                <ProductCard key={p.id} product={p} />
+                <ProductCard key={p.id} product={p} onEdit={() => handleEditClick(p)} />
               )) : <div className="p-8 text-center text-slate-500">No hay productos registrados.</div>}
             </div>
           </div>
@@ -201,7 +211,15 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       <AddProductModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onAdd={(newProd) => {
         const prod: Product = { id: Math.random().toString(36).substr(2, 9), name: newProd.name, current_stock: newProd.stock, min_stock_alert: 5, base_price: 0, last_cost_price: 0 };
         setProducts(prev => [prod, ...prev]);
+        fetchDashboardData();
       }} />
+
+      <EditProductModal 
+        isOpen={isEditModalOpen} 
+        onClose={() => setIsEditModalOpen(false)} 
+        product={productToEdit} 
+        onUpdate={() => fetchDashboardData()} 
+      />
     </div>
   );
 }
@@ -227,7 +245,7 @@ const ActivityItem: React.FC<{ time: string; msg: string; user: string; icon: st
   </div>
 );
 
-const ProductRow: React.FC<{ product: Product }> = ({ product }) => {
+const ProductRow: React.FC<{ product: Product, onEdit: () => void }> = ({ product, onEdit }) => {
   const isLow = product.current_stock <= product.min_stock_alert;
   const color = isLow ? 'amber' : 'emerald';
   const status = isLow ? 'Bajo' : 'Suficiente';
@@ -244,18 +262,25 @@ const ProductRow: React.FC<{ product: Product }> = ({ product }) => {
           {status}
         </span>
       </td>
-      <td className="p-4 text-right pr-6"><button className="text-slate-600 hover:text-white transition-colors text-xs font-black italic uppercase tracking-tighter">Editar</button></td>
+      <td className="p-4 text-right pr-6">
+        <button 
+          onClick={onEdit}
+          className="text-slate-600 hover:text-white transition-colors text-xs font-black italic uppercase tracking-tighter"
+        >
+          Editar
+        </button>
+      </td>
     </tr>
   );
 };
 
-const ProductCard: React.FC<{ product: Product }> = ({ product }) => {
+const ProductCard: React.FC<{ product: Product, onEdit: () => void }> = ({ product, onEdit }) => {
   const isLow = product.current_stock <= product.min_stock_alert;
   const color = isLow ? 'amber' : 'emerald';
   const status = isLow ? 'Bajo' : 'Suficiente';
 
   return (
-    <div className="p-4 hover:bg-white/[0.02] transition-colors">
+    <div className="p-4 hover:bg-white/[0.02] transition-colors active:bg-white/[0.05]" onClick={onEdit}>
       <div className="flex justify-between items-start mb-4">
         <h3 className="font-bold text-slate-100">{product.name}</h3>
         <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase bg-${color}-500/10 text-${color}-400`}>
@@ -277,6 +302,9 @@ const ProductCard: React.FC<{ product: Product }> = ({ product }) => {
           <p className="text-sky-500/50 text-[9px] font-black uppercase tracking-widest mb-1">Venta</p>
           <p className="text-sm font-mono font-bold text-sky-400">${product.base_price}</p>
         </div>
+      </div>
+      <div className="mt-3 text-right">
+        <span className="text-[9px] text-slate-600 font-black uppercase tracking-tighter italic">Toca para editar</span>
       </div>
     </div>
   );
