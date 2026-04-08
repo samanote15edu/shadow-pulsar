@@ -101,7 +101,7 @@ export async function executeCommand(
     const qty = parseInt(restockMatch[1], 10);
     const productName = restockMatch[2].trim();
 
-    // Improved search: Exact first, then partial
+    // 1. EXACT MATCH
     const { data: exactProduct } = await supabase
       .from('products')
       .select('*')
@@ -117,16 +117,29 @@ export async function executeCommand(
       };
     }
 
-    // If no exact match, try partial match (%name%)
-    const { data: similarProds } = await supabase
+    // 2. SMART SEARCH (Plurals and partials)
+    // a) DB name contains userInput (e.g. "Coca" matches "Coca-Cola")
+    // b) userInput contains DB name (e.g. "Gansitos" matches "Gansito")
+    const { data: allProds } = await supabase
       .from('products')
       .select('*')
-      .ilike('name', `%${productName}%`)
-      .eq('store_id', storeId)
-      .limit(1);
+      .eq('store_id', storeId);
 
-    if (similarProds && similarProds.length > 0) {
-      const similar = similarProds[0];
+    const similar = allProds?.find(p => {
+      const dbName = p.name.toLowerCase();
+      const input = productName.toLowerCase();
+      // Stemming: remove last 's' if exists
+      const inputStem = input.length > 3 && input.endsWith('s') ? input.slice(0, -1) : input;
+      const dbStem = dbName.length > 3 && dbName.endsWith('s') ? dbName.slice(0, -1) : dbName;
+
+      return dbName.includes(input) || 
+             input.includes(dbName) || 
+             dbName.includes(inputStem) || 
+             inputStem.includes(dbName) ||
+             dbStem.includes(input);
+    });
+
+    if (similar) {
       return {
         responseText: `🔍 *He encontrado "${similar.name}"*\n\n¿Es el mismo producto que "${productName}"? (*SÍ* / *NO*)`,
         nextStep: 'awaiting_similarity_confirmation',
@@ -148,12 +161,18 @@ export async function executeCommand(
     const qty = parseInt(saleMatch[1]);
     const productName = saleMatch[2].trim();
 
-    const { data: product } = await supabase
+    // Reusing the smart search for sales too
+    const { data: allProds } = await supabase
       .from('products')
       .select('*')
-      .eq('store_id', storeId)
-      .ilike('name', `%${productName}%`)
-      .maybeSingle();
+      .eq('store_id', storeId);
+
+    const product = allProds?.find(p => {
+      const dbName = p.name.toLowerCase();
+      const input = productName.toLowerCase();
+      const inputStem = input.length > 3 && input.endsWith('s') ? input.slice(0, -1) : input;
+      return dbName.includes(input) || input.includes(dbName) || dbName.includes(inputStem);
+    });
 
     if (product) {
       const total = qty * product.base_price;

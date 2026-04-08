@@ -40,6 +40,14 @@ function normalizeText(text: string): string {
     .replace(/[\u0300-\u036f]/g, ""); // Quitar acentos
 }
 
+// Registro de depuración en la base de datos
+async function logDebug(phone: string, action: string, payload: any) {
+  await supabase.from('debug_logs').insert({ 
+    payload: { phone, action, ...payload },
+    created_at: new Date().toISOString()
+  });
+}
+
 // --- SERVIDOR PRINCIPAL ---
 serve(async (req) => {
   if (req.method === 'GET') {
@@ -64,6 +72,8 @@ serve(async (req) => {
 
     if (lockError) return new Response('OK', { status: 200 });
 
+    await logDebug(from, 'message_received', { text, normalized, messageId });
+
     // --- 2. CONSULTAS DE CONTEXTO ---
     const [profileRes, stateRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('whatsapp_number', from).maybeSingle(),
@@ -73,6 +83,8 @@ serve(async (req) => {
     const profile = profileRes.data;
     const state = stateRes.data;
 
+    await logDebug(from, 'context_check', { hasProfile: !!profile, state: state?.step || 'none' });
+
     // --- 3. LOGICA PRINCIPAL ---
 
     // A. FLUJO DE CONVERSACIÓN ACTIVA (ESTADOS) - Prioridad Máxima
@@ -80,8 +92,10 @@ serve(async (req) => {
       const { step, metadata } = state;
 
       // Respuestas genéricas de confirmación
-      const isPositive = ['si', 's', 'yes', 'va', 'dale', 'ok', 'afirma', 'simon'].includes(normalized);
+      const isPositive = ['si', 's', 'yes', 'va', 'dale', 'ok', 'afirma', 'simon', 'sí', 'Si'].includes(normalized) || normalized === 'si';
       const isNegative = ['no', 'n', 'nel', 'nones', 'cancelar', 'cancel'].includes(normalized);
+
+      await logDebug(from, 'state_processing', { step, isPositive, isNegative, normalized });
 
       // ESTADO: Registro de Tienda (Onboarding)
       if (step === 'awaiting_store_name') {
@@ -92,7 +106,7 @@ serve(async (req) => {
         const { data: newStore } = await supabase.from('stores').insert({ name: metadata.store_name }).select().single();
         await supabase.from('profiles').insert({ whatsapp_number: from, full_name: text, role: 'owner', store_id: newStore.id });
         await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-        await sendWhatsAppMessage(from, `¡Felicidades *${text}*! 🚀 Tu tienda *${metadata.store_name}* ya está registrada.\n\nTU PANEL REAL:\nhttps://shadow-pulsar.vercel.app/?s=${newStore.id}`);
+        await sendWhatsAppMessage(from, `¡Felicidades *${text}*! 🚀 Tu tienda *${metadata.store_name}* ya está registrada.`);
       }
       
       // ESTADO: Costo de Producto (Surtido Existente)
@@ -150,12 +164,8 @@ serve(async (req) => {
           if (metadata.type === 'sale') {
             await supabase.rpc('increment_stock', { row_id: metadata.productId, amount: -metadata.qty });
             await supabase.from('transactions').insert({
-              store_id: profile.store_id,
-              product_id: metadata.productId,
-              type: 'sale',
-              quantity_change: -metadata.qty,
-              unit_price: metadata.price,
-              total_amount: metadata.total
+              store_id: profile.store_id, product_id: metadata.productId, type: 'sale',
+              quantity_change: -metadata.qty, unit_price: metadata.price, total_amount: metadata.total
             });
             await sendWhatsAppMessage(from, `✅ *Venta Registrada*\n\nProducto: ${metadata.productName}\nTotal: $${metadata.total}`);
           }
@@ -163,7 +173,7 @@ serve(async (req) => {
           await sendWhatsAppMessage(from, "Operación cancelada. ❌");
         } else {
           await sendWhatsAppMessage(from, "¿Confirmas la operación? Responde *SÍ* o *NO*.");
-          return new Response('OK', { status: 200 }); // Stay in state
+          return new Response('OK', { status: 200 }); 
         }
         await supabase.from('registration_states').delete().eq('whatsapp_number', from);
       }
@@ -183,8 +193,9 @@ serve(async (req) => {
           }).eq('whatsapp_number', from);
           await sendWhatsAppMessage(from, `✨ *¡Nuevo Producto!* ✨\n\nRegistraremos "${metadata.newName}" por separado.\n\nPor favor, dime:\n1. ¿Cuánto te costó?\n2. ¿A cuánto lo venderás?`);
         } else {
+          await logDebug(from, 'similarity_failed_match', { normalized, text });
           await sendWhatsAppMessage(from, "¿Es el mismo producto? Responde *SÍ* para unificar o *NO* para crear uno nuevo.");
-          return new Response('OK', { status: 200 }); // Stay in state
+          return new Response('OK', { status: 200 }); 
         }
       }
 
@@ -196,7 +207,8 @@ serve(async (req) => {
     if (profile) {
       const res = await executeCommand(text, supabase, profile.store_id, profile.role, from);
       if (res.nextStep) {
-        await supabase.from('registration_states').upsert({ whatsapp_number: from, step: res.nextStep, metadata: res.metadata });
+        const { error: upsertError } = await supabase.from('registration_states').upsert({ whatsapp_number: from, step: res.nextStep, metadata: res.metadata });
+        await logDebug(from, 'state_saved', { step: res.nextStep, error: upsertError });
       }
       if (res.responseText) {
         await sendWhatsAppMessage(from, res.responseText);
