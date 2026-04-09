@@ -299,11 +299,12 @@ export async function executeCommand(
   }
 
   // 9. DASHBOARD / LINK ON DEMAND
-  const dashboardKeywords = ['link', 'sistema', 'web', 'dashboard', 'pagina', 'página', 'reporte'];
+  const dashboardKeywords = ['link', 'sistema', 'web', 'dashboard', 'pagina', 'página', 'reporte', 'compu', 'panel', 'tablero', 'computadora'];
   if (dashboardKeywords.some(k => lowerMsg.includes(k))) {
-    const { data: tokenObj } = await supabase.from('report_tokens').insert({ store_id: storeId, access_level: 'admin' }).select().single();
-    const dashboardLink = `https://yrjjajjmhirwkgldulzl.supabase.co/${tokenObj.token}`;
-    return { responseText: `🌐 *ACCESO AL SISTEMA*\n\nPulsa el siguiente link para entrar a tu Dashboard:\n${dashboardLink}\n\n⚠️ Este link es de un solo uso.` };
+    if (userRole !== 'owner' && userRole !== 'manager') return { responseText: "❌ Solo los administradores pueden acceder al panel completo." };
+    
+    const magicLink = `https://shadow-pulsar.vercel.app/?s=${storeId}`;
+    return { responseText: `🖥️ *Acceso al Panel de Control*\n\nTu link seguro para entrar al Dashboard:\n${magicLink}\n\n⚠️ Mantén este link en privado.` };
   }
 
   // 10. BARCODE SCANNER
