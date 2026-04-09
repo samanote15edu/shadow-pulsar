@@ -37,9 +37,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         setLoading(true);
 
-        // 1. Check for Magic Link (Robust URLSearchParams)
+        // 1. Check for Magic Link (URL) or LocalStorage
         const params = new URLSearchParams(window.location.search);
-        const magicStoreId = params.get('s')?.trim();
+        let magicStoreId: string | null = params.get('s')?.trim() || null;
+        
+        // If not in URL, check localStorage
+        if (!magicStoreId) {
+          magicStoreId = localStorage.getItem('last_store_id');
+        }
 
         if (magicStoreId) {
           setIsDemo(false); 
@@ -50,6 +55,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             .single();
 
           if (!magicError && magicStore) {
+            // Save to localStorage for persistence
+            localStorage.setItem('last_store_id', magicStoreId);
+            
             setStores([magicStore]);
             setSelectedStore(magicStore);
             
@@ -64,8 +72,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             
             setLoading(false);
             return;
-          } else if (magicError) {
-            console.error('Error cargando tienda mágica:', magicError);
+          } else {
+            // If ID is invalid, clear it
+            localStorage.removeItem('last_store_id');
           }
         }
 

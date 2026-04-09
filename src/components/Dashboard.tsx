@@ -22,7 +22,9 @@ interface Transaction {
   created_at: string;
   product_name?: string;
   unit_price?: number;
+  total_amount?: number;
   product_id?: string;
+  is_voided?: boolean;
 }
 
 const DUMMY_PRODUCTS: Product[] = [
@@ -102,21 +104,32 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   };
 
   const handleVoid = async (transaction: Transaction) => {
-    if (!transaction.product_id || transaction.type !== 'sale') return;
+    if (!transaction.product_id || transaction.type !== 'sale' || transaction.is_voided) return;
     
     const confirmMessage = `¿Estás seguro de que deseas ANULAR esta venta?\n${transaction.product_name} (${Math.abs(transaction.quantity_change)} unidades)`;
     if (!window.confirm(confirmMessage)) return;
 
     try {
-      // 1. Revert stock
+      // 1. Mark original as voided
+      const { error: markError } = await supabase.from('transactions').update({ is_voided: true }).eq('id', transaction.id);
+      if (markError) throw markError;
+
+      // 2. Revert stock
       const { error: stockError } = await supabase.rpc('increment_stock', {
         row_id: transaction.product_id,
         amount: Math.abs(transaction.quantity_change)
       });
       if (stockError) throw stockError;
 
-      // 2. Mark transaction as void
-      const { error: voidError } = await supabase.from('transactions').update({ type: 'void' }).eq('id', transaction.id);
+      // 3. Create NEW reversal record
+      const { error: voidError } = await supabase.from('transactions').insert({ 
+        store_id: selectedStore?.id,
+        product_id: transaction.product_id,
+        type: 'void',
+        quantity_change: Math.abs(transaction.quantity_change),
+        total_amount: transaction.total_amount,
+        notes: `Reversa de: ${transaction.id}`
+      });
       if (voidError) throw voidError;
 
       fetchDashboardData();
@@ -288,17 +301,17 @@ const StatCard: React.FC<{ title: string; value: string; delta: string; icon: st
 const ActivityItem: React.FC<{ transaction: Transaction, onVoid: () => void }> = ({ transaction, onVoid }) => {
   const time = new Date(transaction.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const msg = `${transaction.product_name}: ${transaction.quantity_change > 0 ? '+' : ''}${transaction.quantity_change}`;
-  const user = transaction.type === 'restock' ? 'Surtido' : transaction.type === 'sale' ? 'Venta' : transaction.type === 'void' ? 'ANULADA' : transaction.type;
+  const user = transaction.type === 'restock' ? 'Surtido' : transaction.type === 'sale' ? 'Venta' : transaction.type === 'void' ? 'ANULACION' : transaction.type;
   const icon = transaction.type === 'restock' ? '📦' : transaction.type === 'void' ? '🚫' : '🥤';
 
   return (
-    <div className={`flex items-center gap-4 p-4 rounded-2xl border transition-colors ${transaction.type === 'void' ? 'bg-red-500/5 border-red-500/10 opacity-60' : 'bg-white/[0.03] border-white/[0.02] hover:border-sky-500/20'}`}>
+    <div className={`flex items-center gap-4 p-4 rounded-2xl border transition-colors ${transaction.type === 'void' ? 'bg-red-500/5 border-red-500/10 italic' : 'bg-white/[0.03] border-white/[0.02]'} ${transaction.is_voided ? 'opacity-40 line-through decoration-red-500/50' : 'hover:border-sky-500/20'}`}>
       <div className="text-2xl">{icon}</div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-bold text-slate-200 truncate">{msg}</p>
         <p className="text-[10px] text-slate-500 uppercase font-medium tracking-tighter">{user} • {time}</p>
       </div>
-      {transaction.type === 'sale' && (
+      {transaction.type === 'sale' && !transaction.is_voided && (
         <button 
           onClick={(e) => { e.stopPropagation(); onVoid(); }}
           className="text-[9px] font-black uppercase bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all px-3 py-1.5 rounded-lg active:scale-95"
