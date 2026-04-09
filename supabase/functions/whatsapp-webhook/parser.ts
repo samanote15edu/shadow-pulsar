@@ -298,9 +298,15 @@ export async function executeCommand(
     };
   }
 
-  // 7. DASHBOARD ON DEMAND
+  // 9. DASHBOARD / LINK ON DEMAND
+  const dashboardKeywords = ['link', 'sistema', 'web', 'dashboard', 'pagina', 'página', 'reporte'];
+  if (dashboardKeywords.some(k => lowerMsg.includes(k))) {
+    const { data: tokenObj } = await supabase.from('report_tokens').insert({ store_id: storeId, access_level: 'admin' }).select().single();
+    const dashboardLink = `https://yrjjajjmhirwkgldulzl.supabase.co/${tokenObj.token}`;
+    return { responseText: `🌐 *ACCESO AL SISTEMA*\n\nPulsa el siguiente link para entrar a tu Dashboard:\n${dashboardLink}\n\n⚠️ Este link es de un solo uso.` };
+  }
 
-  // 6. BARCODE SCANNER
+  // 10. BARCODE SCANNER
   const scanKeywords = ['escanear', 'lector', 'cámara', 'camara', 'código', 'codigo'];
   if (scanKeywords.includes(lowerMsg)) {
     const { data: tokenObj } = await supabase.from('report_tokens').insert({ store_id: storeId, access_level: 'admin' }).select().single();
