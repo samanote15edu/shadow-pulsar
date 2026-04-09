@@ -13,7 +13,7 @@ export interface FiadoItem {
 
 export interface CommandResponse {
   responseText: string;
-  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation' | 'awaiting_void_confirmation' | 'awaiting_physical_count' | 'awaiting_audit_selection' | 'awaiting_correction_amount';
+  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation' | 'awaiting_void_confirmation' | 'awaiting_physical_count' | 'awaiting_audit_selection' | 'awaiting_correction_amount' | 'awaiting_payment_confirmation';
   metadata?: any;
 }
 
