@@ -106,8 +106,8 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   const handleVoid = async (transaction: Transaction) => {
     if (!transaction.product_id || transaction.type !== 'sale' || transaction.is_voided) return;
     
-    const confirmMessage = `¿Estás seguro de que deseas ANULAR esta venta?\n${transaction.product_name} (${Math.abs(transaction.quantity_change)} unidades)`;
-    if (!window.confirm(confirmMessage)) return;
+    const reason = window.prompt(`¿Motivo de la anulación para ${transaction.product_name}?\n(${Math.abs(transaction.quantity_change)} unidades)`);
+    if (reason === null) return; 
 
     try {
       // 1. Mark original as voided
@@ -128,7 +128,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
         type: 'void',
         quantity_change: Math.abs(transaction.quantity_change),
         total_amount: transaction.total_amount,
-        notes: `Reversa de: ${transaction.id}`
+        notes: `Reversa de: ${transaction.id}. Motivo: ${reason || 'Sin motivo'}`
       });
       if (voidError) throw voidError;
 
