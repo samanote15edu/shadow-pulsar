@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+// Build trigger: Confirming partial voiding logic deployment
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useStoreContext } from '../context/StoreContext';
