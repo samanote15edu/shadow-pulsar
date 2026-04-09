@@ -3,6 +3,7 @@ import { StoreProvider } from './context/StoreContext'
 import Dashboard from './components/Dashboard'
 import ReportView from './components/ReportView'
 import FastScan from './components/FastScan'
+import MovementLedger from './components/MovementLedger'
 
 function App() {
   return (
@@ -11,6 +12,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/report/:token" element={<ReportView />} />
+          <Route path="/ledger" element={<MovementLedger />} />
           <Route path="/scan/:token" element={<FastScan />} />
         </Routes>
       </Router>

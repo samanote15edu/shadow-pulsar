@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useStoreContext } from '../context/StoreContext';
 import AddProductModal from './AddProductModal';
@@ -41,6 +42,7 @@ interface DashboardProps {
 
 export default function Dashboard({ onOpenScan }: DashboardProps) {
   const { selectedStore, stores, setSelectedStore, loading, isDemo, userName, logout } = useStoreContext();
+  const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [recentActivity, setRecentActivity] = useState<Transaction[]>([]);
   const [stats, setStats] = useState({ sales: 0, lowStock: 0, fiado: 0 });
@@ -188,8 +190,14 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
         </div>
 
         <div className="glass-pane rounded-3xl p-6 h-fit max-h-[500px] overflow-y-auto">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 font-black uppercase tracking-tighter italic">
-            <span className="text-green-400 animate-pulse">●</span> Actividad Reciente
+          <h2 className="text-lg font-semibold mb-4 flex items-center justify-between font-black uppercase tracking-tighter italic">
+            <span className="flex items-center gap-2"><span className="text-green-400 animate-pulse">●</span> Actividad Reciente</span>
+            <button 
+              onClick={() => navigate('/ledger')}
+              className="text-[10px] text-sky-400 hover:text-sky-300 transition-colors tracking-widest"
+            >
+              Ver Todo →
+            </button>
           </h2>
           <div className="space-y-4">
             {recentActivity.length > 0 ? recentActivity.map(a => (
