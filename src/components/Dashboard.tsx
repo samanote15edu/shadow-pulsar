@@ -25,6 +25,7 @@ interface Transaction {
   total_amount?: number;
   product_id?: string;
   is_voided?: boolean;
+  voided_quantity?: number;
 }
 
 const DUMMY_PRODUCTS: Product[] = [
@@ -47,7 +48,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [recentActivity, setRecentActivity] = useState<Transaction[]>([]);
-  const [stats, setStats] = useState({ sales: 0, lowStock: 0, fiado: 0 });
+  const [stats, setStats] = useState({ sales: 0, lowStock: 0, fiado: 0, shrinkage: 0 });
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
@@ -80,16 +81,42 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
     const localToday = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
     const todayStart = new Date(localToday + 'T00:00:00').toISOString();
     
-    const { data: sales } = await supabase.from('transactions').select('total_amount').eq('store_id', selectedStore?.id).eq('type', 'sale').gte('created_at', todayStart);
-    const total = sales?.reduce((acc, s) => acc + (Number(s.total_amount) || 0), 0) || 0;
-    setStats(prev => ({ ...prev, sales: total }));
+    const { data: transactions } = await supabase
+      .from('transactions')
+      .select('total_amount, type')
+      .eq('store_id', selectedStore?.id)
+      .in('type', ['sale', 'void'])
+      .gte('created_at', todayStart);
+
+    const netSales = transactions?.reduce((acc, t) => {
+      if (t.type === 'sale') return acc + (Number(t.total_amount) || 0);
+      if (t.type === 'void') return acc - (Number(t.total_amount) || 0);
+      return acc;
+    }, 0) || 0;
+    
+    // Calculate Shrinkage (Corrections) in the last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(now.getDate() - 30);
+    const { data: corrections } = await supabase
+      .from('transactions')
+      .select('quantity_change, product_id, products(base_price)')
+      .eq('store_id', selectedStore?.id)
+      .eq('type', 'correction')
+      .gte('created_at', thirtyDaysAgo.toISOString());
+    
+    const totalShrinkage = corrections?.reduce((acc, c) => {
+      const price = (c as any).products?.base_price || 0;
+      return acc + (c.quantity_change * price);
+    }, 0) || 0;
+
+    setStats(prev => ({ ...prev, sales: netSales, shrinkage: totalShrinkage }));
   };
 
   useEffect(() => {
     if (isDemo) {
       setProducts(DUMMY_PRODUCTS);
       setRecentActivity(DUMMY_ACTIVITIES);
-      setStats({ sales: 1250, lowStock: 5, fiado: 840 });
+      setStats({ sales: 1250, lowStock: 5, fiado: 840, shrinkage: -150 });
       return;
     }
     if (!selectedStore) return;
@@ -106,29 +133,53 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   const handleVoid = async (transaction: Transaction) => {
     if (!transaction.product_id || transaction.type !== 'sale' || transaction.is_voided) return;
     
+    // 1. Reason
     const reason = window.prompt(`¿Motivo de la anulación para ${transaction.product_name}?\n(${Math.abs(transaction.quantity_change)} unidades)`);
     if (reason === null) return; 
 
+    // 2. Quantity (Partial logic)
+    const maxToVoid = Math.abs(transaction.quantity_change) - (transaction.voided_quantity || 0);
+    let qtyToVoid = maxToVoid;
+
+    if (maxToVoid > 1) {
+      const input = window.prompt(`¿Cuántas unidades regresan? (Máximo: ${maxToVoid})`, maxToVoid.toString());
+      if (input === null) return;
+      qtyToVoid = parseInt(input, 10);
+      if (isNaN(qtyToVoid) || qtyToVoid <= 0 || qtyToVoid > maxToVoid) {
+        alert('Cantidad inválida');
+        return;
+      }
+    }
+
     try {
-      // 1. Mark original as voided
-      const { error: markError } = await supabase.from('transactions').update({ is_voided: true }).eq('id', transaction.id);
+      const newVoidedQty = (transaction.voided_quantity || 0) + qtyToVoid;
+      const isFullVoid = newVoidedQty === Math.abs(transaction.quantity_change);
+
+      // 1. Update original transaction
+      const { error: markError } = await supabase.from('transactions')
+        .update({ 
+          voided_quantity: newVoidedQty,
+          is_voided: isFullVoid 
+        })
+        .eq('id', transaction.id);
       if (markError) throw markError;
 
       // 2. Revert stock
       const { error: stockError } = await supabase.rpc('increment_stock', {
         row_id: transaction.product_id,
-        amount: Math.abs(transaction.quantity_change)
+        amount: qtyToVoid
       });
       if (stockError) throw stockError;
 
       // 3. Create NEW reversal record
+      const unitPrice = transaction.unit_price || 0;
       const { error: voidError } = await supabase.from('transactions').insert({ 
         store_id: selectedStore?.id,
         product_id: transaction.product_id,
         type: 'void',
-        quantity_change: Math.abs(transaction.quantity_change),
-        total_amount: transaction.total_amount,
-        notes: `Reversa de: ${transaction.id}. Motivo: ${reason || 'Sin motivo'}`
+        quantity_change: qtyToVoid,
+        total_amount: qtyToVoid * unitPrice,
+        notes: `Reversa (${qtyToVoid}/${Math.abs(transaction.quantity_change)}) de: ${transaction.id}. Motivo: ${reason || 'Sin motivo'}`
       });
       if (voidError) throw voidError;
 
@@ -200,8 +251,8 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <StatCard title="Ventas del Día" value={`$${stats.sales}`} delta="+12%" icon="💰" color="emerald" />
+          <StatCard title="Mermas (30d)" value={`$${Math.abs(stats.shrinkage)}`} delta={stats.shrinkage < 0 ? "Pérdida" : "Ajuste"} icon="📉" color={stats.shrinkage < 0 ? "red" : "sky"} />
           <StatCard title="Stock Bajo" value={`${stats.lowStock} Items`} delta={stats.lowStock > 0 ? "Atención" : "Optimo"} icon="⚠️" color={stats.lowStock > 0 ? "amber" : "emerald"} />
-          <StatCard title="Corte Pendiente" value="Turno Tarde" delta="Abierto" icon="🕒" color="sky" />
           <StatCard title="Fiado Total" value={`$${stats.fiado}`} delta="Ledger" icon="📝" color="indigo" />
         </div>
 

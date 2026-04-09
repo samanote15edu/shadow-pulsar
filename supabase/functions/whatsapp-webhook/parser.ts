@@ -13,7 +13,7 @@ export interface FiadoItem {
 
 export interface CommandResponse {
   responseText: string;
-  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation' | 'awaiting_void_confirmation';
+  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation' | 'awaiting_void_confirmation' | 'awaiting_physical_count' | 'awaiting_audit_selection' | 'awaiting_correction_amount';
   metadata?: any;
 }
 
@@ -223,13 +223,82 @@ export async function executeCommand(
     };
   }
 
-  // 6. DASHBOARD ON DEMAND
-  const dashboardKeywords = ['sistema', 'compu', 'link', 'panel', 'tablero', 'computadora'];
-  if (dashboardKeywords.includes(lowerMsg)) {
-    if (userRole !== 'owner' && userRole !== 'manager') return { responseText: "❌ Solo los administradores pueden acceder al panel completo." };
-    const magicLink = `https://shadow-pulsar.vercel.app/?s=${storeId}`;
-    return { responseText: `🖥️ *Acceso al Panel de Control*\n\nAQUÍ TIENES TU LINK SEGURO:\n${magicLink}` };
+  // 6. PHYSICAL COUNT INITIATION
+  const inventoryKeywords = ['iniciar conteo', 'comenzar conteo', 'conteo fisico', 'conteo físico'];
+  if (inventoryKeywords.some(k => lowerMsg.includes(k))) {
+    const { data: prods } = await supabase
+      .from('products')
+      .select('*')
+      .eq('store_id', storeId)
+      .order('name', { ascending: true });
+
+    if (!prods || prods.length === 0) {
+      return { responseText: "❌ No hay productos en el inventario para contar." };
+    }
+
+    const first = prods[0];
+    return {
+      responseText: `🔍 *¡INICIANDO CONTEO FÍSICO!* 📋\n\nVamos uno por uno. Escribe la cantidad real que ves en el estante.\n\n*Producto 1/${prods.length}: ${first.name}*\n📦 El sistema dice que hay: *${first.current_stock}*\n\n¿Cuántos hay físicamente? (Escribe 'Saltar' o 'Fin' si es necesario)`,
+      nextStep: 'awaiting_physical_count',
+      metadata: { productsIds: prods.map(p => p.id), names: prods.map(p => p.name), stocks: prods.map(p => p.current_stock), currentIndex: 0 }
+    };
   }
+
+  // 7. CORRECTION / RETROACTIVE PAYMENT FIX
+  const correctionKeywords = ['corregir', 'arreglar', 'ajustar pago', 'pago parcial'];
+  if (correctionKeywords.some(k => lowerMsg.includes(k))) {
+    const { data: lastSale } = await supabase
+      .from('transactions')
+      .select('*, products(name)')
+      .eq('store_id', storeId)
+      .eq('type', 'sale')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!lastSale) return { responseText: "❌ No encontré ventas recientes para corregir." };
+
+    const prodName = (lastSale as any).products?.name || 'Varios';
+    return {
+      responseText: `🔧 *Corregir Última Venta*\n\nVenta: ${prodName} ($${lastSale.total_amount})\n\n¿Cuánto recibiste realmente en efectivo? (Lo demás se irá a cuenta fiado)`,
+      nextStep: 'awaiting_correction_amount',
+      metadata: { transactionId: lastSale.id, total: lastSale.total_amount, productName: prodName }
+    };
+  }
+
+  // 8. SALES AUDIT / UNRECONCILED
+  const auditKeywords = ['auditoria', 'auditoría', 'pendientes', 'ventas sin cobrar'];
+  if (auditKeywords.some(k => lowerMsg.includes(k))) {
+    if (userRole !== 'owner' && userRole !== 'manager') return { responseText: "❌ Solo los administradores pueden auditar." };
+
+    const { data: unreconciled } = await supabase
+      .from('transactions')
+      .select('*, products(name)')
+      .eq('store_id', storeId)
+      .eq('type', 'sale')
+      .is('amount_received', null)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (!unreconciled || unreconciled.length === 0) {
+      return { responseText: "✅ Todas las ventas recientes tienen su pago conciliado." };
+    }
+
+    let report = "🔎 *AUDITORÍA DE VENTAS PENDIENTES*\n\n";
+    unreconciled.forEach((u, i) => {
+      const name = (u as any).products?.name || 'Venta';
+      report += `${i + 1}. ${name} ($${u.total_amount})\n`;
+    });
+    report += `\n¿Quieres completar la info de alguna? (Escribe el número o 'No')`;
+
+    return {
+      responseText: report,
+      nextStep: 'awaiting_audit_selection',
+      metadata: { items: unreconciled }
+    };
+  }
+
+  // 7. DASHBOARD ON DEMAND
 
   // 6. BARCODE SCANNER
   const scanKeywords = ['escanear', 'lector', 'cámara', 'camara', 'código', 'codigo'];

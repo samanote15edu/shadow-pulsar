@@ -282,14 +282,24 @@ serve(async (req) => {
         await supabase.from('registration_states').delete().eq('whatsapp_number', from);
       }
 
-      // ESTADO: Confirmación de Anulación (Void)
+      // ESTADO: Confirmación de Anulación (Void) - Lógica Robusta
       else if (step === 'awaiting_void_confirmation') {
         if (isPositive) {
-          // 1. Revert Stock
+          // 1. Mark original as voided
+          await supabase.from('transactions').update({ is_voided: true }).eq('id', metadata.transactionId);
+          
+          // 2. Revert Stock
           await supabase.rpc('increment_stock', { row_id: metadata.productId, amount: metadata.qty });
           
-          // 2. Update transaction type to 'void'
-          await supabase.from('transactions').update({ type: 'void' }).eq('id', metadata.transactionId);
+          // 3. Create NEW reversal record
+          await supabase.from('transactions').insert({ 
+            store_id: profile.store_id,
+            product_id: metadata.productId,
+            type: 'void',
+            quantity_change: metadata.qty,
+            total_amount: metadata.total,
+            notes: `Reversa via WhatsApp. ID: ${metadata.transactionId}`
+          });
 
           await sendWhatsAppMessage(from, `✅ *Venta Anulada con Éxito*\n\nSe devolvieron ${metadata.qty} ${metadata.productName} al inventario.`);
         } else if (isNegative) {
@@ -302,6 +312,158 @@ serve(async (req) => {
           return new Response('OK', { status: 200 }); 
         }
         await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+      }
+
+      // ESTADO: Conteo Físico e Inventario (Auditoría)
+      else if (step === 'awaiting_physical_count') {
+        const idx = metadata.currentIndex;
+        const productsCount = metadata.productsIds.length;
+        const currentProdId = metadata.productsIds[idx];
+        const currentProdName = metadata.names[idx];
+        const currentProdStock = metadata.stocks[idx];
+
+        const isSkip = ['saltar', 'paso', 'skip', 'siguiente'].includes(normalized);
+        const isFinish = ['fin', 'terminar', 'hecho', 'finalizar'].includes(normalized);
+        const actualStock = parseFloat(text.replace(/[^0-9.]/g, ''));
+
+        if (isFinish) {
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, "🏁 *CONTEO FINALIZADO*\n\nSesión de auditoría cerrada con éxito. Los resultados ya están en tu panel de control.");
+          return new Response('OK', { status: 200 });
+        }
+
+        if (isSkip) {
+          // No hacemos nada y pasamos al siguiente
+        } else if (!isNaN(actualStock)) {
+          const diff = actualStock - currentProdStock;
+          
+          // 1. Actualizar Stock Real
+          await supabase.from('products').update({ current_stock: actualStock }).eq('id', currentProdId);
+
+          // 2. Registrar Transacción de Corrección (si hay diferencia)
+          if (diff !== 0) {
+             await supabase.from('transactions').insert({
+               store_id: profile.store_id,
+               product_id: currentProdId,
+               type: 'correction',
+               quantity_change: diff,
+               notes: `Ajuste por Conteo Físico. Sistema: ${currentProdStock}, Real: ${actualStock}`
+             });
+          }
+        } else {
+          await sendWhatsAppMessage(from, "❌ Envía un número para el stock real, 'Saltar' para omitir o 'Fin' para terminar.");
+          return new Response('OK', { status: 200 });
+        }
+
+        // Pasar al siguiente producto
+        const nextIdx = idx + 1;
+        if (nextIdx < productsCount) {
+          const nextName = metadata.names[nextIdx];
+          const nextStock = metadata.stocks[nextIdx];
+          await supabase.from('registration_states').update({ metadata: { ...metadata, currentIndex: nextIdx } }).eq('whatsapp_number', from);
+          
+          await sendWhatsAppButtons(from, `📍 *Siguiente: ${nextName}*\n(Producto ${nextIdx + 1}/${productsCount})\n📦 Sistema dice: *${nextStock}*\n\n¿Cuántos hay realmente?`, [
+            { id: 'skip', title: 'SALTAR ⏭️' },
+            { id: 'fin', title: 'FIN 🏁' }
+          ]);
+        } else {
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, "🏁 *¡HAS TERMINADO!*\n\nAuditoría completada. Todo el inventario ha sido reconciliado.");
+        }
+      }
+
+      // ESTADO: Corregir monto de pago (Retroactivo)
+      else if (step === 'awaiting_correction_amount') {
+        const received = parseFloat(text.replace(/[^0-9.]/g, ''));
+        if (isNaN(received)) {
+          await sendWhatsAppMessage(from, "❌ Envía solo el número de lo recibido en efectivo.");
+          return new Response('OK', { status: 200 });
+        }
+
+        const debt = metadata.total - received;
+        await supabase.from('transactions').update({ amount_received: received }).eq('id', metadata.transactionId);
+
+        if (debt > 0) {
+          await supabase.from('registration_states').update({ 
+            step: 'awaiting_customer_assignment', 
+            metadata: { ...metadata, debt } 
+          }).eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `📝 *Venta Partida*\n\nRecibiste $${received}.\nFaltan *$${debt}* por cobrar.\n\n¿A nombre de quién registro esta deuda? (Escribe el nombre del cliente)`);
+        } else {
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `✅ *¡Corregido!*\n\nLa venta de ${metadata.productName} se marcó como pagada totalmente ($${received}).`);
+        }
+      }
+
+      // ESTADO: Selección de venta para auditar
+      else if (step === 'awaiting_audit_selection') {
+        const idx = parseInt(text, 10) - 1;
+        const item = metadata.items[idx];
+
+        if (!item) {
+          await sendWhatsAppMessage(from, "❌ Selección inválida. Di el número de la lista o 'No' para cancelar.");
+          return new Response('OK', { status: 200 });
+        }
+
+        const prodName = item.products?.name || 'Venta';
+        await supabase.from('registration_states').update({ 
+          step: 'awaiting_paid_amount', 
+          metadata: { transactionId: item.id, total: item.total_amount, productName: prodName } 
+        }).eq('whatsapp_number', from);
+
+        await sendWhatsAppMessage(from, `🔎 *Auditando: ${prodName}* ($${item.total_amount})\n\n¿Cuánto se cobró realmente en efectivo?`);
+      }
+
+      // ESTADO: Captura de monto en auditoría
+      else if (step === 'awaiting_paid_amount') {
+        const received = parseFloat(text.replace(/[^0-9.]/g, ''));
+        if (isNaN(received)) {
+          await sendWhatsAppMessage(from, "❌ Envía solo el número.");
+          return new Response('OK', { status: 200 });
+        }
+
+        const debt = metadata.total - received;
+        await supabase.from('transactions').update({ amount_received: received }).eq('id', metadata.transactionId);
+
+        if (debt > 0) {
+          await supabase.from('registration_states').update({ 
+            step: 'awaiting_customer_assignment', 
+            metadata: { ...metadata, debt } 
+          }).eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `📝 *Ajuste: $${debt} pendientes*\n\n¿Quién se llevó esto a fiado? (Escribe su nombre)`);
+        } else {
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `✅ *Conciliado*\n\nVenta marcada como pagada ($${received}).`);
+        }
+      }
+
+      // ESTADO: Asignación de deuda a cliente
+      else if (step === 'awaiting_customer_assignment') {
+        const name = text.trim();
+        
+        // 1. Buscar o crear cliente en Ledger
+        let { data: ledger } = await supabase.from('fiado_ledgers').select('*').eq('store_id', profile.store_id).ilike('customer_name', name).maybeSingle();
+        
+        if (!ledger) {
+          const { data: newLedger } = await supabase.from('fiado_ledgers').insert({
+            store_id: profile.store_id,
+            customer_name: name,
+            current_balance: metadata.debt,
+            notes: 'Creado desde auditoría'
+          }).select().single();
+          ledger = newLedger;
+        } else {
+          await supabase.from('fiado_ledgers').update({
+            current_balance: ledger.current_balance + metadata.debt,
+            last_update_at: new Date().toISOString()
+          }).eq('id', ledger.id);
+        }
+
+        // 2. Vincular transacción
+        await supabase.from('transactions').update({ customer_id: ledger.id }).eq('id', metadata.transactionId);
+
+        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+        await sendWhatsAppMessage(from, `🤝 *Deuda Registrada*\n\nCliente: ${name}\nMonto: $${metadata.debt}\n\nEl sistema ya está conciliado.`);
       }
 
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);

@@ -14,6 +14,7 @@ interface Transaction {
   notes?: string;
   product_id: string;
   is_voided?: boolean;
+  voided_quantity?: number;
 }
 
 const DUMMY_ALL_ACTIVITIES: Transaction[] = [
@@ -121,31 +122,57 @@ export default function MovementLedger() {
 
   const handleVoid = async (transaction: Transaction) => {
     if (transaction.is_voided) return;
+    
+    // 1. Ask for reason
     const reason = window.prompt(`¿Motivo de la anulación para ${transaction.product_name}?`);
     if (reason === null) return; 
 
-    try {
-      // 1. Mark original as voided
-      await supabase.from('transactions').update({ is_voided: true }).eq('id', transaction.id);
+    // 2. Ask for quantity (Partial void logic)
+    const maxToVoid = Math.abs(transaction.quantity_change) - (transaction.voided_quantity || 0);
+    let qtyToVoid = maxToVoid;
 
-      // 2. Revert stock
+    if (maxToVoid > 1) {
+      const input = window.prompt(`¿Cuántas unidades regresan? (Máximo: ${maxToVoid})`, maxToVoid.toString());
+      if (input === null) return;
+      qtyToVoid = parseInt(input, 10);
+      if (isNaN(qtyToVoid) || qtyToVoid <= 0 || qtyToVoid > maxToVoid) {
+        alert('Cantidad inválida');
+        return;
+      }
+    }
+
+    try {
+      const newVoidedQty = (transaction.voided_quantity || 0) + qtyToVoid;
+      const isFullVoid = newVoidedQty === Math.abs(transaction.quantity_change);
+
+      // 1. Update original transaction (track how many are voided)
+      await supabase.from('transactions')
+        .update({ 
+          voided_quantity: newVoidedQty,
+          is_voided: isFullVoid
+        })
+        .eq('id', transaction.id);
+
+      // 2. Revert stock ONLY for the returned amount
       await supabase.rpc('increment_stock', {
         row_id: transaction.product_id,
-        amount: Math.abs(transaction.quantity_change)
+        amount: qtyToVoid
       });
 
       // 3. Create NEW reversal record
+      const unitPrice = transaction.unit_price || 0;
       await supabase.from('transactions').insert({ 
         store_id: selectedStore?.id,
         product_id: transaction.product_id,
         type: 'void',
-        quantity_change: Math.abs(transaction.quantity_change),
-        total_amount: transaction.total_amount,
-        notes: `Reversa de: ${transaction.id}. Motivo: ${reason || 'Sin motivo'}`
+        quantity_change: qtyToVoid,
+        total_amount: qtyToVoid * unitPrice,
+        notes: `Reversa (${qtyToVoid}/${Math.abs(transaction.quantity_change)}) de: ${transaction.id}. Motivo: ${reason || 'Sin motivo'}`
       });
 
       fetchMovements(0, false);
     } catch (err) {
+      console.error('Error in handleVoid:', err);
       alert('Error al anular');
     }
   };
@@ -216,9 +243,10 @@ export default function MovementLedger() {
                       a.type === 'sale' ? 'bg-sky-500/10 text-sky-400' :
                       a.type === 'restock' ? 'bg-emerald-500/10 text-emerald-400' :
                       a.type === 'void' ? 'bg-red-500/10 text-red-500' :
+                      a.type === 'correction' ? 'bg-amber-500/10 text-amber-500' :
                       'bg-slate-500/10 text-slate-400'
                     }`}>
-                      {a.type === 'sale' ? 'Venta' : a.type === 'restock' ? 'Surtido' : a.type === 'void' ? 'Anulado' : a.type}
+                      {a.type === 'sale' ? 'Venta' : a.type === 'restock' ? 'Surtido' : a.type === 'void' ? 'Anulado' : a.type === 'correction' ? 'Ajuste' : a.type}
                     </span>
                   </td>
                   <td className="p-4 text-xs font-bold text-slate-200">{a.product_name}</td>
