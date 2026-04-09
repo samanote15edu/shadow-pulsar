@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useStoreContext } from '../context/StoreContext';
 import { useNavigate } from 'react-router-dom';
@@ -25,7 +25,6 @@ export default function MovementLedger() {
   const [filterType, setFilterType] = useState('all');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   const PAGE_SIZE = 20;
 
@@ -59,7 +58,7 @@ export default function MovementLedger() {
       query = query.lte('created_at', end.toISOString());
     }
 
-    const { data, error } = await query;
+    const { data } = await query;
 
     if (data) {
       const mapped = data.map(a => ({
