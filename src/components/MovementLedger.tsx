@@ -50,12 +50,12 @@ export default function MovementLedger() {
     }
 
     if (dateRange.start) {
-      query = query.gte('created_at', new Date(dateRange.start).toISOString());
+      const start = new Date(dateRange.start + 'T00:00:00').toISOString();
+      query = query.gte('created_at', start);
     }
     if (dateRange.end) {
-      const end = new Date(dateRange.end);
-      end.setHours(23, 59, 59, 999);
-      query = query.lte('created_at', end.toISOString());
+      const end = new Date(dateRange.end + 'T23:59:59').toISOString();
+      query = query.lte('created_at', end);
     }
 
     const { data } = await query;

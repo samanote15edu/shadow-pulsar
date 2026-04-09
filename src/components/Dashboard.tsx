@@ -73,11 +73,14 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
     if (activities && activities.length > 0) {
       setRecentActivity(activities.map(a => ({ ...a, product_name: (a as any).products?.name || 'Desconocido' })));
     }
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const { data: sales } = await supabase.from('transactions').select('total_amount').eq('store_id', selectedStore?.id).eq('type', 'sale').gte('created_at', today.toISOString());
+    // Fix Sales del día calculation to use local day start
+    const now = new Date();
+    const localToday = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    const todayStart = new Date(localToday + 'T00:00:00').toISOString();
+    
+    const { data: sales } = await supabase.from('transactions').select('total_amount').eq('store_id', selectedStore?.id).eq('type', 'sale').gte('created_at', todayStart);
     const total = sales?.reduce((acc, s) => acc + (Number(s.total_amount) || 0), 0) || 0;
-    if (total > 0) setStats(prev => ({ ...prev, sales: total }));
+    setStats(prev => ({ ...prev, sales: total }));
   };
 
   useEffect(() => {
