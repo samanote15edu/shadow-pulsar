@@ -13,7 +13,7 @@ export interface FiadoItem {
 
 export interface CommandResponse {
   responseText: string;
-  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation';
+  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation' | 'awaiting_void_confirmation';
   metadata?: any;
 }
 
@@ -194,7 +194,36 @@ export async function executeCommand(
     }
   }
 
-  // 5. DASHBOARD ON DEMAND
+  // 5. VOID / CANCEL LAST SALE COMMAND
+  const voidKeywords = ['anular', 'cancelar venta', 'borrar venta', 'deshacer'];
+  if (voidKeywords.some(k => lowerMsg.startsWith(k))) {
+    if (userRole !== 'owner' && userRole !== 'manager') return { responseText: "❌ Solo los administradores pueden anular ventas." };
+    
+    // Find last sale transaction
+    const { data: lastSale } = await supabase
+      .from('transactions')
+      .select('*, products(name)')
+      .eq('store_id', storeId)
+      .eq('type', 'sale')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!lastSale) {
+      return { responseText: "❌ No encontré ninguna venta reciente para anular." };
+    }
+
+    const prodName = (lastSale as any).products?.name || 'Producto desconocido';
+    const qty = Math.abs(lastSale.quantity_change);
+
+    return {
+      responseText: `⚠️ *Confirmar Anulación*\n\n¿Deseas anular la última venta?\n• ${qty} ${prodName} ($${lastSale.total_amount})\n\nSe devolverá el stock al inventario.`,
+      nextStep: 'awaiting_void_confirmation',
+      metadata: { transactionId: lastSale.id, productId: lastSale.product_id, qty, productName: prodName, total: lastSale.total_amount }
+    };
+  }
+
+  // 6. DASHBOARD ON DEMAND
   const dashboardKeywords = ['sistema', 'compu', 'link', 'panel', 'tablero', 'computadora'];
   if (dashboardKeywords.includes(lowerMsg)) {
     if (userRole !== 'owner' && userRole !== 'manager') return { responseText: "❌ Solo los administradores pueden acceder al panel completo." };

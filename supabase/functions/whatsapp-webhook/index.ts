@@ -282,6 +282,28 @@ serve(async (req) => {
         await supabase.from('registration_states').delete().eq('whatsapp_number', from);
       }
 
+      // ESTADO: Confirmación de Anulación (Void)
+      else if (step === 'awaiting_void_confirmation') {
+        if (isPositive) {
+          // 1. Revert Stock
+          await supabase.rpc('increment_stock', { row_id: metadata.productId, amount: metadata.qty });
+          
+          // 2. Update transaction type to 'void'
+          await supabase.from('transactions').update({ type: 'void' }).eq('id', metadata.transactionId);
+
+          await sendWhatsAppMessage(from, `✅ *Venta Anulada con Éxito*\n\nSe devolvieron ${metadata.qty} ${metadata.productName} al inventario.`);
+        } else if (isNegative) {
+          await sendWhatsAppMessage(from, "Anulación cancelada. La venta sigue activa. ⚠️");
+        } else {
+          await sendWhatsAppButtons(from, "¿Confirmas la anulación?", [
+            { id: 'yes', title: 'SÍ ✅' },
+            { id: 'no', title: 'NO ❌' }
+          ]);
+          return new Response('OK', { status: 200 }); 
+        }
+        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+      }
+
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
       return new Response('OK', { status: 200 });
     }
@@ -297,7 +319,7 @@ serve(async (req) => {
 
       if (res.responseText) {
         // Use buttons if it's a confirmation next step
-        if (['awaiting_similarity_confirmation', 'awaiting_confirmation', 'awaiting_bulk_confirmation'].includes(res.nextStep || '')) {
+        if (['awaiting_similarity_confirmation', 'awaiting_confirmation', 'awaiting_bulk_confirmation', 'awaiting_void_confirmation'].includes(res.nextStep || '')) {
             await sendWhatsAppButtons(from, res.responseText, [
                 { id: 'yes', title: 'SÍ ✅' },
                 { id: 'no', title: 'NO ❌' }

@@ -21,6 +21,7 @@ interface Transaction {
   created_at: string;
   product_name?: string;
   unit_price?: number;
+  product_id?: string;
 }
 
 const DUMMY_PRODUCTS: Product[] = [
@@ -95,6 +96,31 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
     setIsEditModalOpen(true);
   };
 
+  const handleVoid = async (transaction: Transaction) => {
+    if (!transaction.product_id || transaction.type !== 'sale') return;
+    
+    const confirmMessage = `¿Estás seguro de que deseas ANULAR esta venta?\n${transaction.product_name} (${Math.abs(transaction.quantity_change)} unidades)`;
+    if (!window.confirm(confirmMessage)) return;
+
+    try {
+      // 1. Revert stock
+      const { error: stockError } = await supabase.rpc('increment_stock', {
+        row_id: transaction.product_id,
+        amount: Math.abs(transaction.quantity_change)
+      });
+      if (stockError) throw stockError;
+
+      // 2. Mark transaction as void
+      const { error: voidError } = await supabase.from('transactions').update({ type: 'void' }).eq('id', transaction.id);
+      if (voidError) throw voidError;
+
+      fetchDashboardData();
+    } catch (err) {
+      console.error('Error voiding transaction:', err);
+      alert('No se pudo anular la venta.');
+    }
+  };
+
   if (loading) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 gap-4">
       <div className="w-12 h-12 border-4 border-sky-500/20 border-t-sky-500 rounded-full animate-spin"></div>
@@ -167,7 +193,11 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
           </h2>
           <div className="space-y-4">
             {recentActivity.length > 0 ? recentActivity.map(a => (
-              <ActivityItem key={a.id} time={new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} msg={`${a.product_name}: ${a.quantity_change > 0 ? '+' : ''}${a.quantity_change}`} user={a.type === 'restock' ? 'Reabastecimiento' : a.type === 'sale' ? 'Venta' : a.type} icon={a.type === 'restock' ? '📦' : '🥤'} />
+              <ActivityItem 
+                key={a.id} 
+                transaction={a}
+                onVoid={() => handleVoid(a)}
+              />
             )) : <p className="text-slate-500 text-sm">No hay actividad reciente.</p>}
           </div>
         </div>
@@ -244,15 +274,31 @@ const StatCard: React.FC<{ title: string; value: string; delta: string; icon: st
   </div>
 );
 
-const ActivityItem: React.FC<{ time: string; msg: string; user: string; icon: string }> = ({ time, msg, user, icon }) => (
-  <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.02] hover:border-sky-500/20 transition-colors">
-    <div className="text-2xl">{icon}</div>
-    <div className="flex-1 min-w-0">
-      <p className="text-sm font-bold text-slate-200 truncate">{msg}</p>
-      <p className="text-[10px] text-slate-500 uppercase font-medium tracking-tighter">{user} • {time}</p>
+const ActivityItem: React.FC<{ transaction: Transaction, onVoid: () => void }> = ({ transaction, onVoid }) => {
+  const time = new Date(transaction.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const msg = `${transaction.product_name}: ${transaction.quantity_change > 0 ? '+' : ''}${transaction.quantity_change}`;
+  const user = transaction.type === 'restock' ? 'Surtido' : transaction.type === 'sale' ? 'Venta' : transaction.type === 'void' ? 'ANULADA' : transaction.type;
+  const icon = transaction.type === 'restock' ? '📦' : transaction.type === 'void' ? '🚫' : '🥤';
+
+  return (
+    <div className={`flex items-center gap-4 p-4 rounded-2xl border transition-colors ${transaction.type === 'void' ? 'bg-red-500/5 border-red-500/10 opacity-60' : 'bg-white/[0.03] border-white/[0.02] hover:border-sky-500/20'}`}>
+      <div className="text-2xl">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-bold text-slate-200 truncate">{msg}</p>
+        <p className="text-[10px] text-slate-500 uppercase font-medium tracking-tighter">{user} • {time}</p>
+      </div>
+      {transaction.type === 'sale' && (
+        <button 
+          onClick={(e) => { e.stopPropagation(); onVoid(); }}
+          className="text-[10px] font-black uppercase text-slate-600 hover:text-red-400 transition-colors px-2 py-1"
+          title="Anular venta"
+        >
+          Anular
+        </button>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 const ProductRow: React.FC<{ product: Product, onEdit: () => void }> = ({ product, onEdit }) => {
   const isLow = product.current_stock <= product.min_stock_alert;
