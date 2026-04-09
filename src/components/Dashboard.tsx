@@ -290,7 +290,7 @@ const ActivityItem: React.FC<{ transaction: Transaction, onVoid: () => void }> =
       {transaction.type === 'sale' && (
         <button 
           onClick={(e) => { e.stopPropagation(); onVoid(); }}
-          className="text-[10px] font-black uppercase text-slate-600 hover:text-red-400 transition-colors px-2 py-1"
+          className="text-[9px] font-black uppercase bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all px-3 py-1.5 rounded-lg active:scale-95"
           title="Anular venta"
         >
           Anular
