@@ -10,7 +10,7 @@ interface EditProductModalProps {
     current_stock: number;
     base_price: number;
     last_cost_price: number;
-    min_stock_alert: number;
+    unit_of_measure: string;
   } | null;
   onUpdate: () => void;
 }
@@ -20,6 +20,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({ isOpen, onClose, pr
   const [stock, setStock] = useState('');
   const [price, setPrice] = useState('');
   const [cost, setCost] = useState('');
+  const [unit, setUnit] = useState('pza');
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -28,6 +29,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({ isOpen, onClose, pr
       setStock(product.current_stock.toString());
       setPrice(product.base_price.toString());
       setCost(product.last_cost_price.toString());
+      setUnit(product.unit_of_measure || 'pza');
     }
   }, [product]);
 
@@ -45,7 +47,8 @@ const EditProductModal: React.FC<EditProductModalProps> = ({ isOpen, onClose, pr
           name,
           current_stock: parseInt(stock, 10),
           base_price: parseFloat(price),
-          last_cost_price: parseFloat(cost)
+          last_cost_price: parseFloat(cost),
+          unit_of_measure: unit
         })
         .eq('id', product.id);
 
@@ -87,6 +90,21 @@ const EditProductModal: React.FC<EditProductModalProps> = ({ isOpen, onClose, pr
 
           <div className="grid grid-cols-2 gap-4">
             <div>
+              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Unidad</label>
+              <select 
+                className="w-full bg-slate-900/80 border border-slate-800 rounded-2xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all appearance-none"
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+              >
+                <option value="pza">Pieza (pza)</option>
+                <option value="kg">Kilo (kg)</option>
+                <option value="caja">Caja</option>
+                <option value="lt">Litro (lt)</option>
+                <option value="paquete">Paquete</option>
+                <option value="gr">Gramo (gr)</option>
+              </select>
+            </div>
+            <div>
               <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Stock Actual</label>
               <input 
                 type="number" 
@@ -96,8 +114,22 @@ const EditProductModal: React.FC<EditProductModalProps> = ({ isOpen, onClose, pr
                 required
               />
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-[10px] font-black text-sky-500 uppercase tracking-widest mb-2">Precio Venta ($)</label>
+              <label className="block text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-2">Costo ($)</label>
+              <input 
+                type="number" 
+                step="0.01"
+                className="w-full bg-slate-900/80 border border-emerald-500/20 rounded-2xl px-4 py-3 text-emerald-400 font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all"
+                value={cost}
+                onChange={(e) => setCost(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-black text-sky-500 uppercase tracking-widest mb-2">Venta ($)</label>
               <input 
                 type="number" 
                 step="0.01"
@@ -107,18 +139,6 @@ const EditProductModal: React.FC<EditProductModalProps> = ({ isOpen, onClose, pr
                 required
               />
             </div>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-2">Costo Unitario ($)</label>
-            <input 
-              type="number" 
-              step="0.01"
-              className="w-full bg-slate-900/80 border border-emerald-500/20 rounded-2xl px-4 py-3 text-emerald-400 font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all"
-              value={cost}
-              onChange={(e) => setCost(e.target.value)}
-              required
-            />
           </div>
 
           <div className="pt-4">

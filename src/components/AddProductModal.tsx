@@ -3,13 +3,14 @@ import React, { useState } from 'react';
 interface AddProductModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAdd: (product: { name: string; stock: number; price: number }) => void;
+  onAdd: (product: { name: string; stock: number; price: number; unit_of_measure: string }) => void;
 }
 
 const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAdd }) => {
   const [name, setName] = useState('');
   const [stock, setStock] = useState('');
   const [price, setPrice] = useState('');
+  const [unit, setUnit] = useState('pza');
 
   if (!isOpen) return null;
 
@@ -19,12 +20,14 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAd
     onAdd({
       name,
       stock: parseInt(stock, 10),
-      price: parseFloat(price)
+      price: parseFloat(price),
+      unit_of_measure: unit
     });
     // Reset and close
     setName('');
     setStock('');
     setPrice('');
+    setUnit('pza');
     onClose();
   };
 
@@ -64,16 +67,32 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAd
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Precio ($)</label>
-              <input 
-                type="number" 
-                step="0.1"
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-2xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all"
-                placeholder="0.00"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-              />
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Unidad</label>
+              <select 
+                className="w-full bg-slate-900/50 border border-slate-700 rounded-2xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all appearance-none"
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+              >
+                <option value="pza">Pieza (pza)</option>
+                <option value="kg">Kilo (kg)</option>
+                <option value="caja">Caja</option>
+                <option value="lt">Litro (lt)</option>
+                <option value="paquete">Paquete</option>
+                <option value="gr">Gramo (gr)</option>
+              </select>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Precio de Venta ($)</label>
+            <input 
+              type="number" 
+              step="0.1"
+              className="w-full bg-slate-900/50 border border-slate-700 rounded-2xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all"
+              placeholder="0.00"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+            />
           </div>
 
           <div className="pt-4">

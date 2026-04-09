@@ -11,6 +11,7 @@ interface Product {
   min_stock_alert: number;
   base_price: number;
   last_cost_price: number;
+  unit_of_measure: string;
 }
 
 interface Transaction {
@@ -23,9 +24,9 @@ interface Transaction {
 }
 
 const DUMMY_PRODUCTS: Product[] = [
-  { id: '1', name: 'Coca Cola 600ml', current_stock: 48, min_stock_alert: 10, base_price: 20, last_cost_price: 12 },
-  { id: '2', name: 'Pan Blanco', current_stock: 8, min_stock_alert: 15, base_price: 35, last_cost_price: 28 },
-  { id: '3', name: 'Leche Entera', current_stock: 14, min_stock_alert: 5, base_price: 25, last_cost_price: 18 },
+  { id: '1', name: 'Coca Cola 600ml', current_stock: 48, min_stock_alert: 10, base_price: 20, last_cost_price: 12, unit_of_measure: 'pza' },
+  { id: '2', name: 'Pan Blanco', current_stock: 8, min_stock_alert: 15, base_price: 35, last_cost_price: 28, unit_of_measure: 'pza' },
+  { id: '3', name: 'Leche Entera', current_stock: 14, min_stock_alert: 5, base_price: 25, last_cost_price: 18, unit_of_measure: 'pza' },
 ];
 
 const DUMMY_ACTIVITIES: Transaction[] = [
@@ -62,7 +63,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
     if (isDemo || !selectedStore) return;
     const { data: prods } = await supabase.from('products').select('*').eq('store_id', selectedStore?.id).order('name');
     if (prods && prods.length > 0) {
-      setProducts(prods);
+      setProducts(prods.map(p => ({ ...p, unit_of_measure: p.unit_of_measure || 'pza' })));
       setStats(prev => ({ ...prev, lowStock: prods.filter(p => p.current_stock <= p.min_stock_alert).length }));
     }
     const { data: activities } = await supabase.from('transactions').select('*, products(name)').eq('store_id', selectedStore?.id).order('created_at', { ascending: false }).limit(5);
@@ -209,7 +210,15 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       </main>
 
       <AddProductModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onAdd={(newProd) => {
-        const prod: Product = { id: Math.random().toString(36).substr(2, 9), name: newProd.name, current_stock: newProd.stock, min_stock_alert: 5, base_price: 0, last_cost_price: 0 };
+        const prod: Product = { 
+          id: Math.random().toString(36).substr(2, 9), 
+          name: newProd.name, 
+          current_stock: newProd.stock, 
+          min_stock_alert: 5, 
+          base_price: newProd.price, 
+          last_cost_price: 0,
+          unit_of_measure: newProd.unit_of_measure || 'pza'
+        };
         setProducts(prev => [prod, ...prev]);
         fetchDashboardData();
       }} />
@@ -253,7 +262,12 @@ const ProductRow: React.FC<{ product: Product, onEdit: () => void }> = ({ produc
   return (
     <tr className="hover:bg-white/[0.02] transition-colors group border-b border-slate-900 last:border-0">
       <td className="p-4 pl-6 text-sm font-semibold text-slate-200">{product.name}</td>
-      <td className="p-4 text-center text-sm font-mono">{product.current_stock} <span className="text-slate-600 text-xs">/ {product.min_stock_alert}</span></td>
+      <td className="p-4 text-center">
+        <div className="flex flex-col items-center">
+          <span className="text-sm font-mono text-white font-bold">{product.current_stock}</span>
+          <span className="text-[10px] text-slate-500 uppercase font-black bg-white/5 px-1 rounded-sm">{product.unit_of_measure}</span>
+        </div>
+      </td>
       <td className="p-4 text-center text-sm font-mono text-slate-400">${product.last_cost_price}</td>
       <td className="p-4 text-center text-sm font-mono text-sky-400 font-bold">${product.base_price}</td>
       <td className="p-4">
@@ -292,7 +306,10 @@ const ProductCard: React.FC<{ product: Product, onEdit: () => void }> = ({ produ
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-slate-900/50 p-3 rounded-2xl border border-white/[0.03]">
           <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-1">Stock</p>
-          <p className="text-sm font-mono font-bold text-slate-100">{product.current_stock}</p>
+          <div className="flex items-center gap-1">
+            <p className="text-sm font-mono font-bold text-slate-100">{product.current_stock}</p>
+            <span className="text-[8px] text-slate-500 uppercase font-black bg-white/5 px-1 rounded-sm">{product.unit_of_measure}</span>
+          </div>
         </div>
         <div className="bg-slate-900/50 p-3 rounded-2xl border border-white/[0.03]">
           <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-1">Costo</p>

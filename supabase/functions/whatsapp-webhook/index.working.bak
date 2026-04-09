@@ -30,32 +30,6 @@ async function sendWhatsAppMessage(to: string, text: string) {
   }
 }
 
-async function sendWhatsAppButtons(to: string, bodyText: string, buttons: { id: string, title: string }[]) {
-  const WHATSAPP_ACCESS_TOKEN = Deno.env.get('WHATSAPP_ACCESS_TOKEN');
-  const WHATSAPP_PHONE_ID = Deno.env.get('WHATSAPP_PHONE_ID');
-
-  await fetch(`https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_ID}/messages`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: to,
-      type: 'interactive',
-      interactive: {
-        type: 'button',
-        body: { text: bodyText },
-        action: {
-          buttons: buttons.map(b => ({
-            type: 'reply',
-            reply: { id: b.id, title: b.title }
-          }))
-        }
-      }
-    })
-  });
-}
-
 // --- SERVIDOR PRINCIPAL ---
 // --- UTILIDADES ---
 function normalizeText(text: string): string {
@@ -88,21 +62,7 @@ serve(async (req) => {
 
     const from = message.from;
     const messageId = message.id; 
-    
-    // Handle Button Replies (優先 ID) or Text
-    let text = '';
-    let isButtonYes = false;
-    let isButtonNo = false;
-
-    if (message.type === 'interactive') {
-      const btnId = message.interactive.button_reply.id;
-      text = message.interactive.button_reply.title;
-      isButtonYes = (btnId === 'yes');
-      isButtonNo = (btnId === 'no');
-    } else {
-      text = (message.text?.body || '').trim();
-    }
-      
+    const text = (message.text?.body || '').trim();
     const normalized = normalizeText(text);
 
     // --- 1. BLOQUEO DE DUPLICADOS ---
@@ -112,7 +72,7 @@ serve(async (req) => {
 
     if (lockError) return new Response('OK', { status: 200 });
 
-    await logDebug(from, 'message_received', { text, normalized, messageId, isButtonYes });
+    await logDebug(from, 'message_received', { text, normalized, messageId });
 
     // --- 2. CONSULTAS DE CONTEXTO ---
     const [profileRes, stateRes] = await Promise.all([
@@ -131,19 +91,11 @@ serve(async (req) => {
     if (state) {
       const { step, metadata } = state;
 
-      // Respuestas genéricas de confirmación (Soportando Botones y Texto)
-      const isPositive = isButtonYes || ['si', 's', 'yes', 'va', 'dale', 'ok', 'afirma', 'simon', 'sí', 'Si'].includes(normalized);
-      const isNegative = isButtonNo || ['no', 'n', 'nel', 'nones', 'cancelar', 'cancel'].includes(normalized);
-      const isExit = ['cancelar', 'salir', 'exit', 'cancel', 'reset', 'parar'].includes(normalized);
+      // Respuestas genéricas de confirmación
+      const isPositive = ['si', 's', 'yes', 'va', 'dale', 'ok', 'afirma', 'simon', 'sí', 'Si'].includes(normalized) || normalized === 'si';
+      const isNegative = ['no', 'n', 'nel', 'nones', 'cancelar', 'cancel'].includes(normalized);
 
-      await logDebug(from, 'state_processing', { step, isPositive, isNegative, isExit, normalized });
-
-      // COMANDO GLOBAL: Salida de Emergencia (Reset)
-      if (isExit) {
-        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-        await sendWhatsAppMessage(from, "✅ Operación cancelada. ¿En qué más puedo ayudarte?");
-        return new Response('OK', { status: 200 });
-      }
+      await logDebug(from, 'state_processing', { step, isPositive, isNegative, normalized });
 
       // ESTADO: Registro de Tienda (Onboarding)
       if (step === 'awaiting_store_name') {
@@ -220,10 +172,7 @@ serve(async (req) => {
         } else if (isNegative) {
           await sendWhatsAppMessage(from, "Operación cancelada. ❌");
         } else {
-          await sendWhatsAppButtons(from, "¿Confirmas la operación?", [
-            { id: 'yes', title: 'SÍ ✅' },
-            { id: 'no', title: 'NO ❌' }
-          ]);
+          await sendWhatsAppMessage(from, "¿Confirmas la operación? Responde *SÍ* o *NO*.");
           return new Response('OK', { status: 200 }); 
         }
         await supabase.from('registration_states').delete().eq('whatsapp_number', from);
@@ -245,41 +194,9 @@ serve(async (req) => {
           await sendWhatsAppMessage(from, `✨ *¡Nuevo Producto!* ✨\n\nRegistraremos "${metadata.newName}" por separado.\n\nPor favor, dime:\n1. ¿Cuánto te costó?\n2. ¿A cuánto lo venderás?`);
         } else {
           await logDebug(from, 'similarity_failed_match', { normalized, text });
-          await sendWhatsAppButtons(from, "¿Es el mismo producto?", [
-            { id: 'yes', title: 'SÍ ✅' },
-            { id: 'no', title: 'NO ❌' }
-          ]);
+          await sendWhatsAppMessage(from, "¿Es el mismo producto? Responde *SÍ* para unificar o *NO* para crear uno nuevo.");
           return new Response('OK', { status: 200 }); 
         }
-      }
-
-      // ESTADO: Confirmación de Ticket Masivo (Bulk Sale)
-      else if (step === 'awaiting_bulk_confirmation') {
-        if (isPositive) {
-          const items = metadata.items;
-          for (const item of items) {
-             // Procesar cada venta individual de la lista
-             await supabase.rpc('increment_stock', { row_id: item.productId, amount: -item.qty });
-             await supabase.from('transactions').insert({
-               store_id: profile.store_id,
-               product_id: item.productId,
-               type: 'sale',
-               quantity_change: -item.qty,
-               unit_price: item.price,
-               total_amount: item.subtotal
-             });
-          }
-          await sendWhatsAppMessage(from, `✅ *Venta Masiva Completada*\n\nSe registraron ${items.length} productos.\n*TOTAL: $${metadata.total}*`);
-        } else if (isNegative) {
-          await sendWhatsAppMessage(from, "Ticket cancelado. ❌");
-        } else {
-          await sendWhatsAppButtons(from, "¿Confirmas todo el ticket?", [
-            { id: 'yes', title: 'SÍ ✅' },
-            { id: 'no', title: 'NO ❌' }
-          ]);
-          return new Response('OK', { status: 200 }); 
-        }
-        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
       }
 
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
@@ -289,22 +206,12 @@ serve(async (req) => {
     // B. COMANDOS NUEVOS (Si ya tiene perfil)
     if (profile) {
       const res = await executeCommand(text, supabase, profile.store_id, profile.role, from);
-      
       if (res.nextStep) {
         const { error: upsertError } = await supabase.from('registration_states').upsert({ whatsapp_number: from, step: res.nextStep, metadata: res.metadata });
         await logDebug(from, 'state_saved', { step: res.nextStep, error: upsertError });
       }
-
       if (res.responseText) {
-        // Use buttons if it's a confirmation next step
-        if (['awaiting_similarity_confirmation', 'awaiting_confirmation', 'awaiting_bulk_confirmation'].includes(res.nextStep || '')) {
-            await sendWhatsAppButtons(from, res.responseText, [
-                { id: 'yes', title: 'SÍ ✅' },
-                { id: 'no', title: 'NO ❌' }
-            ]);
-        } else {
-            await sendWhatsAppMessage(from, res.responseText);
-        }
+        await sendWhatsAppMessage(from, res.responseText);
       }
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
       return new Response('OK', { status: 200 });

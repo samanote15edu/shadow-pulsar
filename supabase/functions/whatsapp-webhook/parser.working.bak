@@ -13,25 +13,8 @@ export interface FiadoItem {
 
 export interface CommandResponse {
   responseText: string;
-  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation';
+  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation';
   metadata?: any;
-}
-
-// Helper para búsqueda borrosa reutilizable
-function findSimilarProduct(inputName: string, allProds: any[]) {
-  const input = inputName.toLowerCase();
-  const inputStem = input.length > 3 && input.endsWith('s') ? input.slice(0, -1) : input;
-  
-  return allProds?.find(p => {
-    const dbName = p.name.toLowerCase();
-    const dbStem = dbName.length > 3 && dbName.endsWith('s') ? dbName.slice(0, -1) : dbName;
-
-    return dbName.includes(input) || 
-           input.includes(dbName) || 
-           dbName.includes(inputStem) || 
-           inputStem.includes(dbName) ||
-           dbStem.includes(input);
-  });
 }
 
 export async function executeCommand(
@@ -60,7 +43,7 @@ export async function executeCommand(
      let report = "📦 *TU INVENTARIO ACTUAL*\n";
      report += "---------------------------\n";
      prods.forEach(p => {
-       report += `• *${p.name}*: ${p.current_stock} ${p.unit_of_measure || 'pza'} ($${p.base_price})\n`;
+       report += `• *${p.name}*: ${p.current_stock} pzas ($${p.base_price})\n`;
      });
      report += "---------------------------";
 
@@ -81,6 +64,7 @@ export async function executeCommand(
       if (!seg.trim()) continue;
 
       // Extract Quantity, Name, and Price from segment (e.g. "2 cocas a 20")
+      // Pattern: [Qty or "un/una"] [Name] [optional: a/de/por $[Price]]
       const itemMatch = seg.trim().match(/^(?:(\d+)|(un|una))\s+([\s\w]+?)(?:\s+(?:a|de|por)\s+[\$]?([\d\.]+))?$/i);
       
       if (itemMatch) {
@@ -89,6 +73,7 @@ export async function executeCommand(
         const price = itemMatch[4] ? parseFloat(itemMatch[4]) : null;
         items.push({ name, qty, price });
       } else {
+        // Fallback for simple names like "gansito" without quantity
         items.push({ name: seg.trim(), qty: 1, price: null });
       }
     }
@@ -110,29 +95,58 @@ export async function executeCommand(
     };
   }
 
-  // 3. STOCK RESTOCK PARSER (e.g. "Surtido: 10 Sabritas")
+  // 3. STOCK RESTOCK PARSER (e.g. "Surtido: 10 Sabritas" or "Surtido 5 Leche")
   const restockMatch = cleanMsg.match(/^Surtido[:\s]\s*(\d+)\s+(.+)$/i);
   if (restockMatch) {
     const qty = parseInt(restockMatch[1], 10);
     const productName = restockMatch[2].trim();
 
-    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId);
-    const similar = findSimilarProduct(productName, allProds || []);
+    // 1. EXACT MATCH
+    const { data: exactProduct } = await supabase
+      .from('products')
+      .select('*')
+      .ilike('name', productName)
+      .eq('store_id', storeId)
+      .maybeSingle();
+
+    if (exactProduct) {
+      return {
+        responseText: `📦 *Surtido: ${exactProduct.name}*\n\n¿Cuánto te costó cada unidad esta vez? (Costo anterior: $${exactProduct.last_cost_price || 0})`,
+        nextStep: 'awaiting_product_cost',
+        metadata: { productId: exactProduct.id, qty, productName: exactProduct.name }
+      };
+    }
+
+    // 2. SMART SEARCH (Plurals and partials)
+    // a) DB name contains userInput (e.g. "Coca" matches "Coca-Cola")
+    // b) userInput contains DB name (e.g. "Gansitos" matches "Gansito")
+    const { data: allProds } = await supabase
+      .from('products')
+      .select('*')
+      .eq('store_id', storeId);
+
+    const similar = allProds?.find(p => {
+      const dbName = p.name.toLowerCase();
+      const input = productName.toLowerCase();
+      // Stemming: remove last 's' if exists
+      const inputStem = input.length > 3 && input.endsWith('s') ? input.slice(0, -1) : input;
+      const dbStem = dbName.length > 3 && dbName.endsWith('s') ? dbName.slice(0, -1) : dbName;
+
+      return dbName.includes(input) || 
+             input.includes(dbName) || 
+             dbName.includes(inputStem) || 
+             inputStem.includes(dbName) ||
+             dbStem.includes(input);
+    });
 
     if (similar) {
-      if (similar.name.toLowerCase() === productName.toLowerCase()) {
-        return {
-          responseText: `📦 *Surtido: ${similar.name}*\n\n¿Cuánto te costó cada ${similar.unit_of_measure || 'unidad'} esta vez? (Costo anterior: $${similar.last_cost_price || 0})`,
-          nextStep: 'awaiting_product_cost',
-          metadata: { productId: similar.id, qty, productName: similar.name, unit: similar.unit_of_measure }
-        };
-      }
       return {
-        responseText: `🔍 *He encontrado "${similar.name}"*\n\n¿Es el mismo producto que "${productName}"?`,
+        responseText: `🔍 *He encontrado "${similar.name}"*\n\n¿Es el mismo producto que "${productName}"? (*SÍ* / *NO*)`,
         nextStep: 'awaiting_similarity_confirmation',
-        metadata: { productId: similar.id, qty, productName: similar.name, newName: productName, unit: similar.unit_of_measure }
+        metadata: { productId: similar.id, qty, productName: similar.name, newName: productName }
       };
     } else {
+      // New product flow
       return {
         responseText: `✨ *¡Nuevo Producto!* ✨\n\nNo encontré "${productName}" en tu inventario.\n\nPor favor, dime:\n1. ¿Cuánto te costó?\n2. ¿A cuánto lo venderás?\n\n(Ejemplo: 12 y 20)`,
         nextStep: 'awaiting_new_product_details',
@@ -141,73 +155,60 @@ export async function executeCommand(
     }
   }
 
-  // 4. BULK SALE SCANNER (Detects patterns like "2 cocas 1 gansito")
-  // Regex looks for [Number] [Text] followed by another [Number] or end of string.
-  const bulkRegex = /(\d+)\s+([a-zA-Z\xC0-\xFF\s]+?)(?=\s+\d+|\s*$)/g;
-  const matches = [...cleanMsg.matchAll(bulkRegex)];
+  // 4. SALE PARSER (e.g. "Venta: 2 Coca Cola" or simply "2 Coca Cola")
+  const saleMatch = lowerMsg.match(/^(?:venta:?\s*)?(\d+)\s+(.+)$/i);
+  if (saleMatch) {
+    const qty = parseInt(saleMatch[1]);
+    const productName = saleMatch[2].trim();
 
-  if (matches.length > 0) {
-    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId);
-    const itemsToConfirm = [];
-    let grandTotal = 0;
-    let fallbackText = '';
+    // Reusing the smart search for sales too
+    const { data: allProds } = await supabase
+      .from('products')
+      .select('*')
+      .eq('store_id', storeId);
 
-    for (const match of matches) {
-      const qty = parseInt(match[1], 10);
-      const inputName = match[2].trim();
-      const product = findSimilarProduct(inputName, allProds || []);
+    const product = allProds?.find(p => {
+      const dbName = p.name.toLowerCase();
+      const input = productName.toLowerCase();
+      const inputStem = input.length > 3 && input.endsWith('s') ? input.slice(0, -1) : input;
+      return dbName.includes(input) || input.includes(dbName) || dbName.includes(inputStem);
+    });
 
-      if (product) {
-        const subtotal = qty * product.base_price;
-        grandTotal += subtotal;
-        itemsToConfirm.push({
-          productId: product.id,
-          name: product.name,
-          qty,
-          unit: product.unit_of_measure || 'pza',
-          price: product.base_price,
-          subtotal
-        });
-      } else {
-        fallbackText += `• No encontré "${inputName}".\n`;
-      }
-    }
-
-    if (itemsToConfirm.length > 0) {
-      let ticket = `🥤 *Confirmar Venta*\n\n`;
-      itemsToConfirm.forEach(it => {
-        ticket += `• ${it.qty} ${it.unit} de ${it.name} ... $${it.subtotal}\n`;
-      });
-      ticket += `--------------------------\n`;
-      ticket += `*TOTAL: $${grandTotal}*\n\n`;
-      
-      if (fallbackText) {
-        ticket += `⚠️ _Nota:_\n${fallbackText}`;
-      }
-      ticket += `¿Confirmas el ticket?`;
-
+    if (product) {
+      const total = qty * product.base_price;
       return {
-        responseText: ticket,
-        nextStep: 'awaiting_bulk_confirmation',
-        metadata: { items: itemsToConfirm, total: grandTotal }
+        responseText: `🥤 *Confirmar Venta*\n\nProducto: ${product.name}\nCantidad: ${qty}\nTotal: *$${total}*\n\n¿Confirmas la venta? (*SÍ* / *NO*)`,
+        nextStep: 'awaiting_confirmation',
+        metadata: { type: 'sale', productId: product.id, qty, productName: product.name, total, price: product.base_price }
       };
+    } else {
+      return { responseText: `❌ No encontré "${productName}" en tu inventario. Asegúrate de que el nombre sea correcto o usa *Surtido* para agregarlo.` };
     }
   }
 
-  // 5. DASHBOARD ON DEMAND
+  // 4. OTHER ROBUST PARSERS (Sale / Nuevo)
+  // ... existing logic ...
+
+  // 5. DASHBOARD ON DEMAND (Keywords: Sistema, Compu, Link, Panel, Tablero)
   const dashboardKeywords = ['sistema', 'compu', 'link', 'panel', 'tablero', 'computadora'];
   if (dashboardKeywords.includes(lowerMsg)) {
     if (userRole !== 'owner' && userRole !== 'manager') return { responseText: "❌ Solo los administradores pueden acceder al panel completo." };
+    
     const magicLink = `https://shadow-pulsar.vercel.app/?s=${storeId}`;
     return { responseText: `🖥️ *Acceso al Panel de Control*\n\nAQUÍ TIENES TU LINK SEGURO:\n${magicLink}` };
   }
 
-  // 6. BARCODE SCANNER
+  // 6. BARCODE SCANNER (Keywords: Escanear, Lector, Cámara, Código)
   const scanKeywords = ['escanear', 'lector', 'cámara', 'camara', 'código', 'codigo'];
   if (scanKeywords.includes(lowerMsg)) {
-    const { data: tokenObj } = await supabase.from('report_tokens').insert({ store_id: storeId, access_level: 'admin' }).select().single();
+    // Generate a SCAN Token (Expires in 1 hour for high-speed sessions)
+    const { data: tokenObj } = await supabase.from('report_tokens').insert({ 
+        store_id: storeId,
+        access_level: 'admin' 
+    }).select().single();
+
     const scanLink = `https://yrjjajjmhirwkgldulzl.supabase.co/scan/${tokenObj.token}`;
-    return { responseText: `📱 *Escáner Activado*\n\nPULSA EL LINK PARA ABRIR LA CÁMARA:\n${scanLink}` };
+    return { responseText: `📱 *Escáner Activado*\n\nPULSA EL LINK PARA ABRIR LA CÁMARA:\n${scanLink}\n\n⚠️ Úsalo para Vender, Surtir o Registrar nuevos productos.` };
   }
 
   return { responseText: "🤔 No entendí. Prueba con: 'Inventario', '2 cocas' o 'Escanear'." };
@@ -223,12 +224,16 @@ export function generateVisualReceipt(customer: string, items: FiadoItem[]): str
   for (const item of items) {
      const lineTotal = (item.qty || 1) * (item.price || 0);
      total += lineTotal;
-     ticket += `${item.qty} ${item.name} . . . $${lineTotal.toFixed(2)}\n`;
+     
+     // Clean formatting with dots . . . 
+     const nameDisplay = `${item.qty} ${item.name}`;
+     const dots = " . ".repeat(Math.max(1, 10 - Math.floor(nameDisplay.length / 2)));
+     ticket += `${nameDisplay}${dots} $${lineTotal.toFixed(2)}\n`;
   }
 
   ticket += `---------------------------\n`;
   ticket += `*TOTAL: $${total.toFixed(2)}*\n\n`;
-  ticket += `¿Es correcto?`;
+  ticket += `¿Es correcto? (*SÍ* / *NO*)`;
 
   return ticket;
 }
