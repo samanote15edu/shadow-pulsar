@@ -80,7 +80,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       setRecentActivity(activities.map(a => ({ 
         ...a, 
         product_name: (a as any).products?.name || 'Desconocido',
-        customer_name: (a as any).fiado_ledgers?.[0]?.customer_name || null
+        customer_name: (a as any).fiado_ledgers?.customer_name || (a as any).fiado_ledgers?.[0]?.customer_name || null
       })));
     }
     // Fix Sales del día calculation to use local day start

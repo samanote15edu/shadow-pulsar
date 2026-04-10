@@ -80,7 +80,7 @@ export default function MovementLedger() {
       const mapped = data.map(a => ({
         ...a,
         product_name: (a as any).products?.name || 'Desconocido',
-        customer_name: (a as any).fiado_ledgers?.[0]?.customer_name || null
+        customer_name: (a as any).fiado_ledgers?.customer_name || (a as any).fiado_ledgers?.[0]?.customer_name || null
       }));
       setActivities(prev => append ? [...prev, ...mapped] : mapped);
       setHasMore(data.length === PAGE_SIZE);
