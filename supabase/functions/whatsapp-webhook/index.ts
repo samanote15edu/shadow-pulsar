@@ -517,6 +517,18 @@ serve(async (req) => {
         }
       }
 
+      // ESTADO: Confirmación de Ajuste de Costo Directo
+      else if (step === 'awaiting_cost_confirmation') {
+        if (isPositive) {
+          await supabase.from('products').update({ last_cost_price: metadata.newCost }).eq('id', metadata.productId);
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `✅ *Costo Actualizado*\n\nEl nuevo costo para *${metadata.productName}* es $${metadata.newCost}.`);
+        } else {
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, "Ajuste cancelado. ❌");
+        }
+      }
+
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
       return new Response('OK', { status: 200 });
     }
@@ -528,7 +540,7 @@ serve(async (req) => {
         await supabase.from('registration_states').upsert({ whatsapp_number: from, step: res.nextStep, metadata: res.metadata });
       }
       if (res.responseText) {
-        if (['awaiting_confirmation', 'awaiting_bulk_confirmation', 'awaiting_void_confirmation'].includes(res.nextStep || '')) {
+        if (['awaiting_confirmation', 'awaiting_bulk_confirmation', 'awaiting_void_confirmation', 'awaiting_cost_confirmation'].includes(res.nextStep || '')) {
           await sendWhatsAppButtons(from, res.responseText, [{ id: 'yes', title: 'SÍ ✅' }, { id: 'no', title: 'NO ❌' }]);
         } else {
           await sendWhatsAppMessage(from, res.responseText);

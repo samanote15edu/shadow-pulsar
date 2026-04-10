@@ -13,7 +13,7 @@ export interface FiadoItem {
 
 export interface CommandResponse {
   responseText: string;
-  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation' | 'awaiting_void_confirmation' | 'awaiting_physical_count' | 'awaiting_audit_selection' | 'awaiting_correction_amount' | 'awaiting_payment_confirmation' | 'awaiting_physical_cash' | 'awaiting_corte_confirmation';
+  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation' | 'awaiting_void_confirmation' | 'awaiting_physical_count' | 'awaiting_audit_selection' | 'awaiting_correction_amount' | 'awaiting_payment_confirmation' | 'awaiting_physical_cash' | 'awaiting_corte_confirmation' | 'awaiting_restock_qty_from_warning' | 'awaiting_cost_confirmation';
   metadata?: any;
 }
 
@@ -257,7 +257,27 @@ export async function executeCommand(
     };
   }
 
-  // 7. CORRECTION / RETROACTIVE PAYMENT FIX
+  // 7. DIRECT COST ADJUSTMENT (e.g. "Costo Coca: 15")
+  const costAdjustMatch = cleanMsg.match(/^Costo\s+(.+?):\s*[\$]?([\d\.]+)$/i);
+  if (costAdjustMatch) {
+    const productName = costAdjustMatch[1].trim();
+    const newCost = parseFloat(costAdjustMatch[2]);
+
+    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId);
+    const product = findSimilarProduct(productName, allProds || []);
+
+    if (product) {
+      return {
+        responseText: `🔧 *Ajuste de Costo*\n\n¿Confirmas cambiar el costo de *${product.name}*?\n• Costo anterior: $${product.last_cost_price || 0}\n• Nuevo costo: *$${newCost}*\n\n(Esto no afecta el inventario)`,
+        nextStep: 'awaiting_cost_confirmation',
+        metadata: { productId: product.id, productName: product.name, newCost }
+      };
+    } else {
+      return { responseText: `❌ No encontré el producto "${productName}" para ajustar su costo.` };
+    }
+  }
+
+  // 8. CORRECTION / RETROACTIVE PAYMENT FIX
   const correctionKeywords = ['corregir', 'arreglar', 'ajustar pago', 'pago parcial'];
   if (correctionKeywords.some(k => lowerMsg.includes(k))) {
     const { data: lastSale } = await supabase
