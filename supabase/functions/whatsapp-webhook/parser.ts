@@ -297,6 +297,23 @@ export async function executeCommand(
     }
   }
 
+  // 9. DEBT PAYMENT / ABONO (e.g. "Abono Tito 50", "Pago Alex 100", "Payment Rosa 20")
+  const paymentMatch = cleanMsg.match(/^(Abono|Pago|Payment)\s+(.+?)(?:\s*[:]\s*|\s+)([\d\.]+)$/i);
+  if (paymentMatch) {
+    const customerName = paymentMatch[2].trim();
+    const amount = parseFloat(paymentMatch[3]);
+
+    if (isNaN(amount) || amount <= 0) {
+      return { responseText: "❌ El monto del abono debe ser un número válido mayor a 0." };
+    }
+
+    return {
+      responseText: `💰 *Confirmar Abono*\n\n¿Registrar pago de *$${amount}* para *${customerName}*?`,
+      nextStep: 'awaiting_payment_ledgers_confirmation',
+      metadata: { customerName, amount }
+    };
+  }
+
   // 9. CORRECTION / RETROACTIVE PAYMENT FIX
   const correctionKeywords = ['corregir', 'arreglar', 'ajustar pago', 'pago parcial'];
   if (correctionKeywords.some(k => lowerMsg.includes(k))) {

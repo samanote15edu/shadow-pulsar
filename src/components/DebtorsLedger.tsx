@@ -96,6 +96,49 @@ const DebtorsLedger: React.FC = () => {
     }
   };
 
+  const handlePartialPayment = async (debtor: Debtor) => {
+    const amountStr = window.prompt(`Registrar abono para ${debtor.customer_name} (Deuda: $${debtor.current_balance}):`, "");
+    if (!amountStr) return;
+    
+    const amount = parseFloat(amountStr);
+    if (isNaN(amount) || amount <= 0) {
+      alert("Por favor ingresa un monto válido mayor a 0");
+      return;
+    }
+
+    if (amount > debtor.current_balance) {
+      if (!window.confirm(`El abono ($${amount}) es mayor a la deuda ($${debtor.current_balance}). ¿Deseas dejar el saldo en $0?`)) return;
+    }
+
+    try {
+      if (!isDemo) {
+        const newBalance = Math.max(0, debtor.current_balance - amount);
+
+        await supabase
+          .from('fiado_ledgers')
+          .update({ 
+            current_balance: newBalance, 
+            last_update_at: new Date().toISOString() 
+          })
+          .eq('id', debtor.id);
+
+        await supabase.from('transactions').insert({
+          store_id: selectedStore?.id,
+          type: 'fiado_payment',
+          total_amount: amount,
+          amount_received: amount,
+          customer_id: debtor.id,
+          notes: `Abono registrado desde Dashboard - Cliente: ${debtor.customer_name}`
+        });
+      }
+      fetchDebtors();
+      alert(`✅ Abono de $${amount} registrado con éxito.`);
+    } catch (err) {
+      console.error('Error registering payment:', err);
+      alert('Error al procesar el abono');
+    }
+  };
+
   const handleLiquidation = async (debtor: Debtor) => {
     if (!window.confirm(`¿Confirmas que ${debtor.customer_name} liquidó su deuda total de $${debtor.current_balance}?`)) return;
 
@@ -111,10 +154,12 @@ const DebtorsLedger: React.FC = () => {
           type: 'fiado_payment',
           total_amount: debtor.current_balance,
           amount_received: debtor.current_balance,
+          customer_id: debtor.id,
           notes: `Liquidación total de deuda: $${debtor.current_balance} - Cliente: ${debtor.customer_name}`
         });
       }
       fetchDebtors();
+      alert(`✅ Deuda de ${debtor.customer_name} liquidada.`);
       setSelectedDebtor(null);
     } catch (err) {
       console.error('Error liquidating debt:', err);
@@ -191,12 +236,20 @@ const DebtorsLedger: React.FC = () => {
                         {debtor.last_update_at ? new Date(debtor.last_update_at).toLocaleDateString() : 'N/A'}
                       </td>
                       <td className="px-6 py-5 text-right">
-                        <button 
-                          onClick={() => handleLiquidation(debtor)}
-                          className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-2 rounded-xl text-xs font-bold transition-all transform active:scale-95"
-                        >
-                          Liquidar Todo
-                        </button>
+                        <div className="flex justify-end gap-2">
+                          <button 
+                            onClick={() => handlePartialPayment(debtor)}
+                            className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all border border-white/5"
+                          >
+                            Abonar
+                          </button>
+                          <button 
+                            onClick={() => handleLiquidation(debtor)}
+                            className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-2 rounded-xl text-xs font-bold transition-all transform active:scale-95"
+                          >
+                            Liquidar Todo
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

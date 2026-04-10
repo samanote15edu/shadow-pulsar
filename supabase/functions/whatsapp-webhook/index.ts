@@ -541,6 +541,50 @@ serve(async (req) => {
         }
       }
 
+      // ESTADO: Confirmación de Abono a Deuda (Ledgers)
+      else if (step === 'awaiting_payment_ledgers_confirmation') {
+        if (isPositive) {
+          const { customerName, amount } = metadata;
+          
+          // 1. Buscar al deudor (ignora mayúsculas/minúsculas)
+          const { data: ledger } = await supabase
+            .from('fiado_ledgers')
+            .select('*')
+            .eq('store_id', profile.store_id)
+            .ilike('customer_name', customerName)
+            .maybeSingle();
+
+          if (!ledger) {
+            await sendWhatsAppMessage(from, `❌ No encontré a ningún deudor llamado "${customerName}".`);
+          } else {
+            // 2. Actualizar balance
+            const newBalance = Math.max(0, Number(ledger.current_balance) - amount);
+            await supabase
+              .from('fiado_ledgers')
+              .update({ 
+                current_balance: newBalance, 
+                last_update_at: new Date().toISOString() 
+              })
+              .eq('id', ledger.id);
+
+            // 3. Registrar transacción de pago para Auditoría y Corte de Caja
+            await supabase.from('transactions').insert({
+              store_id: profile.store_id,
+              type: 'fiado_payment',
+              total_amount: amount,
+              amount_received: amount,
+              customer_id: ledger.id,
+              notes: `Abono vía WhatsApp: ${ledger.customer_name}`
+            });
+
+            await sendWhatsAppMessage(from, `✅ *Abono Registrado*\n\nCliente: ${ledger.customer_name}\nRecibido: $${amount}\nSaldo pendiente: *$${newBalance.toFixed(2)}*`);
+          }
+        } else {
+          await sendWhatsAppMessage(from, "Abono cancelado. ❌");
+        }
+        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+      }
+
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
       return new Response('OK', { status: 200 });
     }
@@ -552,7 +596,7 @@ serve(async (req) => {
         await supabase.from('registration_states').upsert({ whatsapp_number: from, step: res.nextStep, metadata: res.metadata });
       }
       if (res.responseText) {
-        if (['awaiting_confirmation', 'awaiting_bulk_confirmation', 'awaiting_void_confirmation', 'awaiting_cost_confirmation', 'awaiting_price_confirmation'].includes(res.nextStep || '')) {
+        if (['awaiting_confirmation', 'awaiting_bulk_confirmation', 'awaiting_void_confirmation', 'awaiting_cost_confirmation', 'awaiting_price_confirmation', 'awaiting_payment_ledgers_confirmation'].includes(res.nextStep || '')) {
           await sendWhatsAppButtons(from, res.responseText, [{ id: 'yes', title: 'SÍ ✅' }, { id: 'no', title: 'NO ❌' }]);
         } else {
           await sendWhatsAppMessage(from, res.responseText);
