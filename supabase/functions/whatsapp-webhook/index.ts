@@ -273,6 +273,26 @@ serve(async (req) => {
           }
           await supabase.from('registration_states').delete().eq('whatsapp_number', from);
           await sendWhatsAppMessage(from, `✅ *Pago Completo Registrado*\n\nVenta cerrada con éxito.`);
+
+          // CHEQUEO FINAL DE STOCK (Tras pago completo)
+          const idsToCheck = items.map(it => it.id);
+          const { data: finalTxs } = await supabase.from('transactions').select('product_id, products(name, current_stock)').in('id', idsToCheck);
+          
+          if (finalTxs) {
+            for (const tx of finalTxs) {
+              const prod = (tx as any).products;
+              if (prod && prod.current_stock < 0) {
+                await sendWhatsAppMessage(from, `⚠️ *ALERTA:* El stock de *${prod.name}* quedó en ${prod.current_stock}.\n\n¿Deseas registrar un *surtido* ahora? Escribe la cantidad recibida (ej: 20) o escribe "No".`);
+                // Guardamos el estado para el surtido inmediato
+                await supabase.from('registration_states').upsert({ 
+                  whatsapp_number: from, 
+                  step: 'awaiting_product_cost', 
+                  metadata: { productId: tx.product_id, qty: Math.abs(prod.current_stock), productName: prod.name } 
+                });
+                break; // Solo sugerimos uno a la vez para no confundir el flujo
+              }
+            }
+          }
         } else if (isNegative) {
           await supabase.from('registration_states').update({ 
             step: 'awaiting_paid_amount',
@@ -393,6 +413,87 @@ serve(async (req) => {
           await supabase.from('transactions').update({ customer_id: ledger.id }).in('id', txIds);
           await supabase.from('registration_states').delete().eq('whatsapp_number', from);
           await sendWhatsAppMessage(from, `🤝 Deuda registrada a ${name}.`);
+
+          // CHEQUEO FINAL DE STOCK (Tras registro de deuda)
+          const { data: finalTxs } = await supabase.from('transactions').select('product_id, products(name, current_stock)').in('id', txIds);
+          if (finalTxs) {
+            for (const tx of finalTxs) {
+              const prod = (tx as any).products;
+              if (prod && prod.current_stock < 0) {
+                await sendWhatsAppMessage(from, `⚠️ *ALERTA:* Tras la deuda de ${name}, el stock de *${prod.name}* quedó en ${prod.current_stock}.\n\n¿Deseas registrar un *surtido* ahora? Escribe la cantidad recibida o responde "No".`);
+                await supabase.from('registration_states').upsert({ 
+                  whatsapp_number: from, 
+                  step: 'awaiting_product_cost', 
+                  metadata: { productId: tx.product_id, qty: 10, productName: prod.name } // Default 10 if we don't know
+                });
+                break;
+              }
+            }
+          }
+      }
+
+      // ESTADO: Captura de efectivo físico (Corte Ciego)
+      else if (step === 'awaiting_physical_cash') {
+        const physical = parseFloat(text.replace(/[^0-9.]/g, ''));
+        if (isNaN(physical)) {
+          await sendWhatsAppMessage(from, "❌ Envía solo el número del efectivo que tienes.");
+          return new Response('OK', { status: 200 });
+        }
+
+        // Obtener último cierre
+        let sinceTimestamp = '1970-01-01T00:00:00Z';
+        const { data: lastCorte } = await supabase
+          .from('cash_snapshots')
+          .select('closed_at')
+          .eq('store_id', profile.store_id)
+          .order('closed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (lastCorte) sinceTimestamp = lastCorte.closed_at;
+
+        // Calcular efectivo esperado (suma de todos los amount_received desde el último corte)
+        const { data: txs } = await supabase
+          .from('transactions')
+          .select('amount_received')
+          .eq('store_id', profile.store_id)
+          .gt('created_at', sinceTimestamp)
+          .is('is_voided', false);
+        
+        const expected = txs?.reduce((sum, tx) => sum + (Number(tx.amount_received) || 0), 0) || 0;
+        const diff = physical - expected;
+
+        await supabase.from('registration_states').update({
+          step: 'awaiting_corte_confirmation',
+          metadata: { physical, expected, diff, since: sinceTimestamp }
+        }).eq('whatsapp_number', from);
+
+        let resMsg = `📊 *RESUMEN DE CIERRE*\n\n`;
+        resMsg += `• Efectivo Real: $${physical.toFixed(2)}\n`;
+        resMsg += `• Sistema Espera: $${expected.toFixed(2)}\n`;
+        resMsg += `---------------------------\n`;
+        resMsg += `• DIFERENCIA: *${diff >= 0 ? '+' : ''}$${diff.toFixed(2)}* ${diff === 0 ? '✅' : '⚠️'}\n\n`;
+        resMsg += `¿Deseas cerrar el turno ahora?`;
+
+        await sendWhatsAppButtons(from, resMsg, [{ id: 'yes', title: 'SÍ 🔒' }, { id: 'no', title: 'NO ❌' }]);
+      }
+
+      // ESTADO: Confirmación Final de Corte
+      else if (step === 'awaiting_corte_confirmation') {
+        if (isPositive) {
+          await supabase.from('cash_snapshots').insert({
+            store_id: profile.store_id,
+            started_at: metadata.since,
+            expected_cash: metadata.expected,
+            actual_cash: metadata.physical,
+            status: 'closed'
+          });
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, "✅ *Caja Cerrada*. Se ha guardado el registro del turno.");
+        } else {
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, "Corte cancelado. ❌");
+        }
       }
 
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);

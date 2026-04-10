@@ -116,7 +116,15 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       return acc + (c.quantity_change * price);
     }, 0) || 0;
 
-    setStats(prev => ({ ...prev, sales: netSales, shrinkage: totalShrinkage }));
+    // Calculate Total Fiado (Debt)
+    const { data: fiadoData } = await supabase
+      .from('fiado_ledgers')
+      .select('current_balance')
+      .eq('store_id', selectedStore?.id);
+    
+    const totalFiado = fiadoData?.reduce((acc, f) => acc + (Number(f.current_balance) || 0), 0) || 0;
+
+    setStats(prev => ({ ...prev, sales: netSales, shrinkage: totalShrinkage, fiado: totalFiado }));
   };
 
   useEffect(() => {

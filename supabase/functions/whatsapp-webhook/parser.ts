@@ -13,7 +13,7 @@ export interface FiadoItem {
 
 export interface CommandResponse {
   responseText: string;
-  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation' | 'awaiting_void_confirmation' | 'awaiting_physical_count' | 'awaiting_audit_selection' | 'awaiting_correction_amount' | 'awaiting_payment_confirmation';
+  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation' | 'awaiting_void_confirmation' | 'awaiting_physical_count' | 'awaiting_audit_selection' | 'awaiting_correction_amount' | 'awaiting_payment_confirmation' | 'awaiting_physical_cash' | 'awaiting_corte_confirmation';
   metadata?: any;
 }
 
@@ -157,29 +157,42 @@ export async function executeCommand(
       const inputName = match[2].trim();
       const product = findSimilarProduct(inputName, allProds || []);
 
-      if (product) {
-        const subtotal = qty * product.base_price;
-        grandTotal += subtotal;
-        itemsToConfirm.push({
-          productId: product.id,
-          name: product.name,
-          qty,
-          unit: product.unit_of_measure || 'pza',
-          price: product.base_price,
-          subtotal
-        });
-      } else {
-        fallbackText += `• No encontré "${inputName}".\n`;
-      }
+        if (product) {
+          const subtotal = qty * product.base_price;
+          grandTotal += subtotal;
+          
+          let warning = '';
+          if (product.current_stock < qty) {
+            warning = `⚠️ *Stock Insuficiente* (${product.current_stock} disp.)`;
+          }
+
+          itemsToConfirm.push({
+            productId: product.id,
+            name: product.name,
+            qty,
+            unit: product.unit_of_measure || 'pza',
+            price: product.base_price,
+            subtotal,
+            warning
+          });
+        } else {
+          fallbackText += `• No encontré "${inputName}".\n`;
+        }
     }
 
     if (itemsToConfirm.length > 0) {
       let ticket = `🥤 *Confirmar Venta*\n\n`;
       itemsToConfirm.forEach(it => {
-        ticket += `• ${it.qty} ${it.unit} de ${it.name} ... $${it.subtotal}\n`;
+        ticket += `• ${it.qty} ${it.unit} de ${it.name} ... $${it.subtotal}${it.warning ? `\n    ${it.warning}` : ''}\n`;
       });
       ticket += `--------------------------\n`;
-      ticket += `*TOTAL: $${grandTotal}*\n\n`;
+      ticket += `*TOTAL: $${grandTotal}*\n`;
+      
+      const hasStockWarning = itemsToConfirm.some(it => it.warning);
+      if (hasStockWarning) {
+        ticket += `⚠️ _La venta forzará stock negativo en algunos items._\n`;
+      }
+      ticket += `\n`;
       
       if (fallbackText) {
         ticket += `⚠️ _Nota:_\n${fallbackText}`;
@@ -298,7 +311,18 @@ export async function executeCommand(
     };
   }
 
-  // 9. DASHBOARD / LINK ON DEMAND
+  // 10. CORTE DE CAJA (Inicia el flujo ciego)
+  const corteKeywords = ['corte', 'cerrar caja', 'cerrar dia', 'cerrar día', 'corte de caja'];
+  if (corteKeywords.some(k => lowerMsg === k)) {
+     if (userRole !== 'owner' && userRole !== 'manager') return { responseText: "❌ Solo los administradores pueden realizar el corte." };
+     
+     return {
+       responseText: "🔐 *INICIANDO CORTE CIEGO*\n\nPor favor, escribe el monto total de efectivo que tienes físicamente en la caja ahora mismo.",
+       nextStep: 'awaiting_physical_cash'
+     };
+  }
+
+  // 11. DASHBOARD / LINK ON DEMAND
   const dashboardKeywords = ['link', 'sistema', 'web', 'dashboard', 'pagina', 'página', 'reporte', 'compu', 'panel', 'tablero', 'computadora'];
   if (dashboardKeywords.some(k => lowerMsg.includes(k))) {
     if (userRole !== 'owner' && userRole !== 'manager') return { responseText: "❌ Solo los administradores pueden acceder al panel completo." };
