@@ -76,11 +76,11 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       setStats(prev => ({ ...prev, lowStock: prods.filter(p => p.current_stock <= p.min_stock_alert).length }));
     }
     const { data: activities } = await supabase.from('transactions').select('*, products(name), fiado_ledgers(customer_name)').eq('store_id', selectedStore?.id).order('created_at', { ascending: false }).limit(5);
-    if (activities && activities.length > 0) {
+    if (activities) {
       setRecentActivity(activities.map(a => ({ 
         ...a, 
-        product_name: (a as any).products?.name || 'Desconocido',
-        customer_name: (a as any).fiado_ledgers?.customer_name || (a as any).fiado_ledgers?.[0]?.customer_name || null
+        product_name: (a as any).products?.name || (a.type === 'fiado_payment' ? 'Abono de Deuda' : 'Desconocido'),
+        customer_name: (a as any).fiado_ledgers?.customer_name || a.customer_name || null
       })));
     }
     // Fix Sales del día calculation to use local day start
@@ -376,9 +376,13 @@ const StatCard: React.FC<{ title: string; value: string; delta: string; icon: st
 
 const ActivityItem: React.FC<{ transaction: Transaction, onVoid: () => void }> = ({ transaction, onVoid }) => {
   const time = new Date(transaction.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const msg = `${transaction.product_name}: ${transaction.quantity_change > 0 ? '+' : ''}${transaction.quantity_change}`;
-  const user = transaction.type === 'restock' ? 'Surtido' : transaction.type === 'sale' ? 'Venta' : transaction.type === 'void' ? 'ANULACION' : transaction.type;
-  const icon = transaction.type === 'restock' ? '📦' : transaction.type === 'void' ? '🚫' : '🥤';
+  const isPayment = transaction.type === 'fiado_payment';
+  const msg = isPayment 
+    ? `Abono recibido: $${transaction.total_amount?.toFixed(2)}`
+    : `${transaction.product_name}: ${transaction.quantity_change > 0 ? '+' : ''}${transaction.quantity_change}`;
+    
+  const user = isPayment ? 'PAGO RECIBIDO' : transaction.type === 'restock' ? 'Surtido' : transaction.type === 'sale' ? 'Venta' : transaction.type === 'void' ? 'ANULACION' : transaction.type;
+  const icon = isPayment ? '💰' : transaction.type === 'restock' ? '📦' : transaction.type === 'void' ? '🚫' : '🥤';
   const isPartial = transaction.type === 'sale' && transaction.amount_received < (transaction.total_amount || 0);
 
   return (
