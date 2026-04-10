@@ -529,6 +529,18 @@ serve(async (req) => {
         }
       }
 
+      // ESTADO: Confirmación de Ajuste de Precio de Venta Directo
+      else if (step === 'awaiting_price_confirmation') {
+        if (isPositive) {
+          await supabase.from('products').update({ base_price: metadata.newPrice }).eq('id', metadata.productId);
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `✅ *Precio de Venta Actualizado*\n\nEl nuevo precio para *${metadata.productName}* es $${metadata.newPrice}.`);
+        } else {
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, "Ajuste cancelado. ❌");
+        }
+      }
+
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
       return new Response('OK', { status: 200 });
     }
@@ -540,7 +552,7 @@ serve(async (req) => {
         await supabase.from('registration_states').upsert({ whatsapp_number: from, step: res.nextStep, metadata: res.metadata });
       }
       if (res.responseText) {
-        if (['awaiting_confirmation', 'awaiting_bulk_confirmation', 'awaiting_void_confirmation', 'awaiting_cost_confirmation'].includes(res.nextStep || '')) {
+        if (['awaiting_confirmation', 'awaiting_bulk_confirmation', 'awaiting_void_confirmation', 'awaiting_cost_confirmation', 'awaiting_price_confirmation'].includes(res.nextStep || '')) {
           await sendWhatsAppButtons(from, res.responseText, [{ id: 'yes', title: 'SÍ ✅' }, { id: 'no', title: 'NO ❌' }]);
         } else {
           await sendWhatsAppMessage(from, res.responseText);
