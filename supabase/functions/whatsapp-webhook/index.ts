@@ -276,7 +276,7 @@ serve(async (req) => {
         } else if (isNegative) {
           await supabase.from('registration_states').update({ 
             step: 'awaiting_paid_amount',
-            metadata: { ...metadata, transactionId: metadata.transactionIds[0].id } 
+            metadata: { ...metadata } 
           }).eq('whatsapp_number', from);
           await sendWhatsAppMessage(from, `💰 *Pago Parcial*\n\n¿Cuánto recibiste en efectivo?`);
         } else {
@@ -295,16 +295,22 @@ serve(async (req) => {
           return new Response('OK', { status: 200 });
         }
 
-        const debt = metadata.total - received;
-        // Si es una venta masiva, la deuda se asocia al primer item (o a la cuenta general del cliente)
-        await supabase.from('transactions').update({ amount_received: received }).eq('id', metadata.transactionId);
+        const totalTicket = metadata.total;
+        const debt = totalTicket - received;
+        const items = metadata.transactionIds;
+
+        // Repartir proporcionalmente el monto recibido entre los items
+        for (const item of items) {
+          const proportionalReceived = (item.total / totalTicket) * received;
+          await supabase.from('transactions').update({ amount_received: proportionalReceived }).eq('id', item.id);
+        }
 
         if (debt > 0) {
           await supabase.from('registration_states').update({ 
             step: 'awaiting_customer_assignment', 
             metadata: { ...metadata, debt } 
           }).eq('whatsapp_number', from);
-          await sendWhatsAppMessage(from, `📝 *Ajuste: $${debt} pendientes*\n\n¿A quién le anotamos esta deuda? (Escribe su nombre)`);
+          await sendWhatsAppMessage(from, `📝 *Ajuste: $${debt.toFixed(2)} pendientes*\n\n¿A quién le anotamos esta deuda? (Escribe su nombre)`);
         } else {
           await supabase.from('registration_states').delete().eq('whatsapp_number', from);
           await sendWhatsAppMessage(from, `✅ *Pago Registrado*\n\nLa venta se marcó como pagada totalmente.`);
@@ -381,7 +387,10 @@ serve(async (req) => {
           } else {
             await supabase.from('fiado_ledgers').update({ current_balance: ledger.current_balance + metadata.debt, last_update_at: new Date().toISOString() }).eq('id', ledger.id);
           }
-          await supabase.from('transactions').update({ customer_id: ledger.id }).eq('id', metadata.transactionId);
+          
+          // Vincular todas las transacciones del ticket al deudor
+          const txIds = metadata.transactionIds.map(t => t.id);
+          await supabase.from('transactions').update({ customer_id: ledger.id }).in('id', txIds);
           await supabase.from('registration_states').delete().eq('whatsapp_number', from);
           await sendWhatsAppMessage(from, `🤝 Deuda registrada a ${name}.`);
       }
