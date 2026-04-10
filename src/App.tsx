@@ -4,6 +4,7 @@ import Dashboard from './components/Dashboard'
 import ReportView from './components/ReportView'
 import FastScan from './components/FastScan'
 import MovementLedger from './components/MovementLedger'
+import DebtorsLedger from './components/DebtorsLedger'
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
           <Route path="/report/:token" element={<ReportView />} />
           <Route path="/ledger" element={<MovementLedger />} />
           <Route path="/scan/:token" element={<FastScan />} />
+          <Route path="/debtors" element={<DebtorsLedger />} />
         </Routes>
       </Router>
     </StoreProvider>

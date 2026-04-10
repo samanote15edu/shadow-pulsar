@@ -257,8 +257,8 @@ export async function executeCommand(
     };
   }
 
-  // 7. DIRECT COST ADJUSTMENT (e.g. "Costo Coca: 15" or "Costo Coca 15")
-  const costAdjustMatch = cleanMsg.match(/^Costo\s+(.+?)(?:\s*[:]\s*|\s+)([\d\.]+)$/i);
+  // 7. DIRECT COST ADJUSTMENT (e.g. "Costo Coca 15", "Cost Coca 15", "Compra Coca 15")
+  const costAdjustMatch = cleanMsg.match(/^(Costo|Cost|Compra)\s+(.+?)(?:\s*[:]\s*|\s+)([\d\.]+)$/i);
   if (costAdjustMatch) {
     const productName = costAdjustMatch[1].trim();
     const newCost = parseFloat(costAdjustMatch[2]);
@@ -277,8 +277,8 @@ export async function executeCommand(
     }
   }
 
-  // 8. DIRECT SALE PRICE ADJUSTMENT (e.g. "Precio Coca 20")
-  const priceAdjustMatch = cleanMsg.match(/^Precio\s+(.+?)(?:\s*[:]\s*|\s+)([\d\.]+)$/i);
+  // 8. DIRECT SALE PRICE ADJUSTMENT (e.g. "Precio Coca 20", "Price Coca 20", "Venta Coca 20")
+  const priceAdjustMatch = cleanMsg.match(/^(Precio|Price|Venta)\s+(.+?)(?:\s*[:]\s*|\s+)([\d\.]+)$/i);
   if (priceAdjustMatch) {
     const productName = priceAdjustMatch[1].trim();
     const newPrice = parseFloat(priceAdjustMatch[2]);

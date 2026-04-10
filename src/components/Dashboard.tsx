@@ -268,7 +268,14 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
           <StatCard title="Ventas del Día" value={`$${stats.sales}`} delta="+12%" icon="💰" color="emerald" />
           <StatCard title="Mermas (30d)" value={`$${Math.abs(stats.shrinkage)}`} delta={stats.shrinkage < 0 ? "Pérdida" : "Ajuste"} icon="📉" color={stats.shrinkage < 0 ? "red" : "sky"} />
           <StatCard title="Stock Bajo" value={`${stats.lowStock} Items`} delta={stats.lowStock > 0 ? "Atención" : "Optimo"} icon="⚠️" color={stats.lowStock > 0 ? "amber" : "emerald"} />
-          <StatCard title="Fiado Total" value={`$${stats.fiado}`} delta="Ledger" icon="📝" color="indigo" />
+          <StatCard 
+            title="Fiado Total" 
+            value={`$${stats.fiado}`} 
+            delta="Ver Detalles" 
+            icon="👥" 
+            color="indigo" 
+            onClick={() => navigate('/debtors')}
+          />
         </div>
 
         <div className="glass-pane rounded-3xl p-6 h-fit max-h-[500px] overflow-y-auto">
@@ -353,8 +360,11 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   );
 }
 
-const StatCard: React.FC<{ title: string; value: string; delta: string; icon: string; color: string }> = ({ title, value, delta, icon, color }) => (
-  <div className="glass-pane rounded-3xl p-6 transition-all hover:bg-white/[0.07] group cursor-default">
+const StatCard: React.FC<{ title: string; value: string; delta: string; icon: string; color: string; onClick?: () => void }> = ({ title, value, delta, icon, color, onClick }) => (
+  <div 
+    onClick={onClick}
+    className={`glass-pane rounded-3xl p-6 transition-all group ${onClick ? 'cursor-pointer hover:bg-white/[0.07] hover:border-white/20 hover:scale-[1.02] border border-transparent' : 'cursor-default'}`}
+  >
     <div className="flex justify-between items-start mb-2">
       <div className={`w-10 h-10 rounded-2xl bg-${color}-500/10 flex items-center justify-center text-xl`}>{icon}</div>
       <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded-full bg-${color}-500/10 text-${color}-400`}>{delta}</span>
