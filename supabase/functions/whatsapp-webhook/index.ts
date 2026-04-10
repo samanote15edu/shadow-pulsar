@@ -153,6 +153,27 @@ serve(async (req) => {
         await sendWhatsAppMessage(from, `¡Felicidades *${text}*! 🚀 Tu tienda *${metadata.store_name}* ya está registrada.`);
       }
       
+      // ESTADO: Cantidad de Surtido desde Advertencia
+      else if (step === 'awaiting_restock_qty_from_warning') {
+        const qty = parseInt(text.replace(/[^0-9]/g, ''));
+        if (isNaN(qty) || qty <= 0) {
+          if (text.toLowerCase() === 'no') {
+            await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+            await sendWhatsAppMessage(from, "Surtido cancelado. 👍");
+          } else {
+            await sendWhatsAppMessage(from, "❌ Por favor, envía la cantidad recibida o escribe 'No'.");
+          }
+          return new Response('OK', { status: 200 });
+        }
+
+        await supabase.from('registration_states').update({
+          step: 'awaiting_product_cost',
+          metadata: { ...metadata, qty }
+        }).eq('whatsapp_number', from);
+        
+        await sendWhatsAppMessage(from, `📦 *Surtido de ${metadata.productName}*\n\n¿Cuánto te costó cada unidad esta vez?`);
+      }
+
       // ESTADO: Costo de Producto
       else if (step === 'awaiting_product_cost') {
         const cost = parseFloat(text.replace(/[^0-9.]/g, ''));
@@ -283,13 +304,13 @@ serve(async (req) => {
               const prod = (tx as any).products;
               if (prod && prod.current_stock < 0) {
                 await sendWhatsAppMessage(from, `⚠️ *ALERTA:* El stock de *${prod.name}* quedó en ${prod.current_stock}.\n\n¿Deseas registrar un *surtido* ahora? Escribe la cantidad recibida (ej: 20) o escribe "No".`);
-                // Guardamos el estado para el surtido inmediato
+                // Cambiamos a un nuevo estado intermedio que capture la cantidad primero
                 await supabase.from('registration_states').upsert({ 
                   whatsapp_number: from, 
-                  step: 'awaiting_product_cost', 
-                  metadata: { productId: tx.product_id, qty: Math.abs(prod.current_stock), productName: prod.name } 
+                  step: 'awaiting_restock_qty_from_warning', 
+                  metadata: { productId: tx.product_id, productName: prod.name } 
                 });
-                break; // Solo sugerimos uno a la vez para no confundir el flujo
+                break; 
               }
             }
           }
@@ -423,8 +444,8 @@ serve(async (req) => {
                 await sendWhatsAppMessage(from, `⚠️ *ALERTA:* Tras la deuda de ${name}, el stock de *${prod.name}* quedó en ${prod.current_stock}.\n\n¿Deseas registrar un *surtido* ahora? Escribe la cantidad recibida o responde "No".`);
                 await supabase.from('registration_states').upsert({ 
                   whatsapp_number: from, 
-                  step: 'awaiting_product_cost', 
-                  metadata: { productId: tx.product_id, qty: 10, productName: prod.name } // Default 10 if we don't know
+                  step: 'awaiting_restock_qty_from_warning', 
+                  metadata: { productId: tx.product_id, productName: prod.name } 
                 });
                 break;
               }
