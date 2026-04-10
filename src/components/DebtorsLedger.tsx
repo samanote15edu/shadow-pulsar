@@ -74,7 +74,7 @@ const DebtorsLedger: React.FC = () => {
           .from('transactions')
           .select('*')
           .eq('store_id', selectedStore?.id)
-          .eq('customer_name', debtor.customer_name)
+          .eq('customer_id', debtor.id)
           .eq('type', 'sale')
           .eq('is_voided', false)
           .order('created_at', { ascending: false });
