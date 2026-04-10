@@ -23,10 +23,12 @@ interface Transaction {
   created_at: string;
   product_name?: string;
   unit_price?: number;
-  total_amount?: number;
+  total_amount: number;
+  amount_received: number;
   product_id?: string;
   is_voided?: boolean;
   voided_quantity?: number;
+  customer_name?: string;
 }
 
 const DUMMY_PRODUCTS: Product[] = [
@@ -36,8 +38,8 @@ const DUMMY_PRODUCTS: Product[] = [
 ];
 
 const DUMMY_ACTIVITIES: Transaction[] = [
-  { id: '1', type: 'sale', quantity_change: -2, created_at: new Date().toISOString(), product_name: 'Refrescos' },
-  { id: '2', type: 'restock', quantity_change: 20, created_at: new Date().toISOString(), product_name: 'Leche' },
+  { id: '1', type: 'sale', quantity_change: -2, created_at: new Date().toISOString(), product_name: 'Refrescos', total_amount: 30, amount_received: 30 },
+  { id: '2', type: 'restock', quantity_change: 20, created_at: new Date().toISOString(), product_name: 'Leche', total_amount: 0, amount_received: 0 },
 ];
 
 interface DashboardProps {
@@ -73,9 +75,13 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       setProducts(prods.map(p => ({ ...p, unit_of_measure: p.unit_of_measure || 'pza' })));
       setStats(prev => ({ ...prev, lowStock: prods.filter(p => p.current_stock <= p.min_stock_alert).length }));
     }
-    const { data: activities } = await supabase.from('transactions').select('*, products(name)').eq('store_id', selectedStore?.id).order('created_at', { ascending: false }).limit(5);
+    const { data: activities } = await supabase.from('transactions').select('*, products(name), fiado_ledgers(customer_name)').eq('store_id', selectedStore?.id).order('created_at', { ascending: false }).limit(5);
     if (activities && activities.length > 0) {
-      setRecentActivity(activities.map(a => ({ ...a, product_name: (a as any).products?.name || 'Desconocido' })));
+      setRecentActivity(activities.map(a => ({ 
+        ...a, 
+        product_name: (a as any).products?.name || 'Desconocido',
+        customer_name: (a as any).fiado_ledgers?.customer_name || null
+      })));
     }
     // Fix Sales del día calculation to use local day start
     const now = new Date();
@@ -355,13 +361,24 @@ const ActivityItem: React.FC<{ transaction: Transaction, onVoid: () => void }> =
   const msg = `${transaction.product_name}: ${transaction.quantity_change > 0 ? '+' : ''}${transaction.quantity_change}`;
   const user = transaction.type === 'restock' ? 'Surtido' : transaction.type === 'sale' ? 'Venta' : transaction.type === 'void' ? 'ANULACION' : transaction.type;
   const icon = transaction.type === 'restock' ? '📦' : transaction.type === 'void' ? '🚫' : '🥤';
+  const isPartial = transaction.type === 'sale' && transaction.amount_received < (transaction.total_amount || 0);
 
   return (
     <div className={`flex items-center gap-4 p-4 rounded-2xl border transition-colors ${transaction.type === 'void' ? 'bg-red-500/5 border-red-500/10 italic' : 'bg-white/[0.03] border-white/[0.02]'} ${transaction.is_voided ? 'opacity-40 line-through decoration-red-500/50' : 'hover:border-sky-500/20'}`}>
       <div className="text-2xl">{icon}</div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-bold text-slate-200 truncate">{msg}</p>
-        <p className="text-[10px] text-slate-500 uppercase font-medium tracking-tighter">{user} • {time}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-bold text-slate-200 truncate">{msg}</p>
+          {isPartial && (
+            <span className="text-[8px] font-black bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/30">FIADO</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          <p className="text-[10px] text-slate-500 uppercase font-medium tracking-tighter">{user} • {time}</p>
+          {transaction.customer_name && (
+            <span className="text-[10px] text-indigo-400 font-bold">👤 {transaction.customer_name}</span>
+          )}
+        </div>
       </div>
       {transaction.type === 'sale' && !transaction.is_voided && (
         <button 

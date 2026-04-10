@@ -11,16 +11,18 @@ interface Transaction {
   product_name: string;
   unit_price: number;
   total_amount: number;
+  amount_received: number;
   notes?: string;
   product_id: string;
   is_voided?: boolean;
   voided_quantity?: number;
+  customer_name?: string;
 }
 
 const DUMMY_ALL_ACTIVITIES: Transaction[] = [
-  { id: 'd1', type: 'sale', quantity_change: -2, created_at: new Date().toISOString(), product_name: 'Refresco Familiar', unit_price: 20, total_amount: 40, product_id: 'p1', is_voided: false },
-  { id: 'd2', type: 'restock', quantity_change: 24, created_at: new Date().toISOString(), product_name: 'Cerveza Corona', unit_price: 15, total_amount: 0, product_id: 'p2', is_voided: false },
-  { id: 'd3', type: 'void', quantity_change: -1, created_at: new Date().toISOString(), product_name: 'Leche', unit_price: 25, total_amount: 25, notes: 'Error de cobro', product_id: 'p3', is_voided: false },
+  { id: 'd1', type: 'sale', quantity_change: -2, created_at: new Date().toISOString(), product_name: 'Refresco Familiar', unit_price: 20, total_amount: 40, amount_received: 40, product_id: 'p1', is_voided: false },
+  { id: 'd2', type: 'restock', quantity_change: 24, created_at: new Date().toISOString(), product_name: 'Cerveza Corona', unit_price: 15, total_amount: 0, amount_received: 0, product_id: 'p2', is_voided: false },
+  { id: 'd3', type: 'void', quantity_change: -1, created_at: new Date().toISOString(), product_name: 'Leche', unit_price: 25, total_amount: 25, amount_received: 0, notes: 'Error de cobro', product_id: 'p3', is_voided: false },
 ];
 
 export default function MovementLedger() {
@@ -54,7 +56,7 @@ export default function MovementLedger() {
 
     let query = supabase
       .from('transactions')
-      .select('*, products(name)')
+      .select('*, products(name), fiado_ledgers(customer_name)')
       .eq('store_id', selectedStore.id)
       .order('created_at', { ascending: false })
       .range(pageToFetch * PAGE_SIZE, (pageToFetch + 1) * PAGE_SIZE - 1);
@@ -77,7 +79,8 @@ export default function MovementLedger() {
     if (data) {
       const mapped = data.map(a => ({
         ...a,
-        product_name: (a as any).products?.name || 'Desconocido'
+        product_name: (a as any).products?.name || 'Desconocido',
+        customer_name: (a as any).fiado_ledgers?.customer_name || null
       }));
       setActivities(prev => append ? [...prev, ...mapped] : mapped);
       setHasMore(data.length === PAGE_SIZE);
@@ -227,7 +230,8 @@ export default function MovementLedger() {
                 <th className="p-4">Producto</th>
                 <th className="p-4 text-center">Cant.</th>
                 <th className="p-4 text-right">Monto</th>
-                <th className="p-4">Notas</th>
+                <th className="p-4 text-right">Cobrado</th>
+                <th className="p-4">Deudor/Notas</th>
                 <th className="p-4 text-right pr-6">Acción</th>
               </tr>
             </thead>
@@ -252,7 +256,27 @@ export default function MovementLedger() {
                   <td className="p-4 text-xs font-bold text-slate-200">{a.product_name}</td>
                   <td className="p-4 text-center text-xs font-mono">{a.quantity_change > 0 ? '+' : ''}{a.quantity_change}</td>
                   <td className="p-4 text-right text-xs font-mono">${a.total_amount || 0}</td>
-                  <td className="p-4 text-[10px] text-slate-500 max-w-[150px] truncate" title={a.notes}>{a.notes || '-'}</td>
+                  <td className="p-4 text-right text-xs font-mono">
+                    {a.type === 'sale' ? (
+                      <div>
+                        <span className={a.amount_received < a.total_amount ? 'text-amber-400 font-bold' : 'text-emerald-400'}>
+                          ${a.amount_received || 0}
+                        </span>
+                        {a.amount_received < a.total_amount && (
+                          <div className="text-[9px] text-red-500 font-black">
+                            -${(a.total_amount - (a.amount_received || 0)).toFixed(2)}
+                          </div>
+                        )}
+                      </div>
+                    ) : '-'}
+                  </td>
+                  <td className="p-4 text-[10px] text-slate-500 max-w-[150px] truncate" title={a.customer_name || a.notes}>
+                    {a.customer_name ? (
+                      <span className="bg-indigo-500/10 text-indigo-300 px-2 py-1 rounded-md border border-indigo-500/20 font-bold uppercase">
+                        👤 {a.customer_name}
+                      </span>
+                    ) : (a.notes || '-')}
+                  </td>
                   <td className="p-4 text-right pr-6">
                     {a.type === 'sale' && !a.is_voided && (
                       <button 
