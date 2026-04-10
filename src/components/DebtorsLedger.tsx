@@ -72,7 +72,7 @@ const DebtorsLedger: React.FC = () => {
       } else {
         const { data, error } = await supabase
           .from('transactions')
-          .select('*')
+          .select('*, products(name)')
           .eq('store_id', selectedStore?.id)
           .eq('customer_id', debtor.id)
           .eq('type', 'sale')
@@ -80,7 +80,14 @@ const DebtorsLedger: React.FC = () => {
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        setHistory(data || []);
+        
+        // Flatten the data to include product_name
+        const formattedHistory = (data || []).map((tx: any) => ({
+          ...tx,
+          product_name: tx.products?.name || 'Producto'
+        }));
+        
+        setHistory(formattedHistory);
       }
     } catch (err) {
       console.error('Error fetching history:', err);
