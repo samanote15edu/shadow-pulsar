@@ -79,8 +79,8 @@ export default function MovementLedger() {
     if (data) {
       const mapped = data.map(a => ({
         ...a,
-        product_name: (a as any).products?.name || 'Desconocido',
-        customer_name: (a as any).fiado_ledgers?.customer_name || (a as any).fiado_ledgers?.[0]?.customer_name || null
+        product_name: (a as any).products?.name || (a.type === 'fiado_payment' ? 'Abono de Deuda' : 'Desconocido'),
+        customer_name: (a as any).fiado_ledgers?.customer_name || a.customer_name || null
       }));
       setActivities(prev => append ? [...prev, ...mapped] : mapped);
       setHasMore(data.length === PAGE_SIZE);
@@ -213,6 +213,7 @@ export default function MovementLedger() {
           >
             <option value="all">Todos los Tipos</option>
             <option value="sale">Ventas</option>
+            <option value="fiado_payment">Abonos/Pagos</option>
             <option value="restock">Surtidos</option>
             <option value="void">Anulaciones</option>
             <option value="correction">Ajustes</option>
@@ -245,12 +246,13 @@ export default function MovementLedger() {
                   <td className="p-4">
                     <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-md ${
                       a.type === 'sale' ? 'bg-sky-500/10 text-sky-400' :
+                      a.type === 'fiado_payment' ? 'bg-indigo-500/10 text-indigo-400' :
                       a.type === 'restock' ? 'bg-emerald-500/10 text-emerald-400' :
                       a.type === 'void' ? 'bg-red-500/10 text-red-500' :
                       a.type === 'correction' ? 'bg-amber-500/10 text-amber-500' :
                       'bg-slate-500/10 text-slate-400'
                     }`}>
-                      {a.type === 'sale' ? 'Venta' : a.type === 'restock' ? 'Surtido' : a.type === 'void' ? 'Anulado' : a.type === 'correction' ? 'Ajuste' : a.type}
+                      {a.type === 'sale' ? 'Venta' : a.type === 'fiado_payment' ? 'Abono' : a.type === 'restock' ? 'Surtido' : a.type === 'void' ? 'Anulado' : a.type === 'correction' ? 'Ajuste' : a.type}
                     </span>
                   </td>
                   <td className="p-4 text-xs font-bold text-slate-200">{a.product_name}</td>
@@ -268,6 +270,8 @@ export default function MovementLedger() {
                           </div>
                         )}
                       </div>
+                    ) : a.type === 'fiado_payment' ? (
+                      <span className="text-emerald-400 font-bold">${a.amount_received || 0}</span>
                     ) : '-'}
                   </td>
                   <td className="p-4 text-[10px] text-slate-500 max-w-[150px] truncate" title={a.customer_name || a.notes}>
