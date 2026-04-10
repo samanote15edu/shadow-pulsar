@@ -125,6 +125,7 @@ const DebtorsLedger: React.FC = () => {
         await supabase.from('transactions').insert({
           store_id: selectedStore?.id,
           type: 'fiado_payment',
+          quantity_change: 0,
           total_amount: amount,
           amount_received: amount,
           customer_id: debtor.id,
@@ -152,6 +153,7 @@ const DebtorsLedger: React.FC = () => {
         await supabase.from('transactions').insert({
           store_id: selectedStore?.id,
           type: 'fiado_payment',
+          quantity_change: 0,
           total_amount: debtor.current_balance,
           amount_received: debtor.current_balance,
           customer_id: debtor.id,

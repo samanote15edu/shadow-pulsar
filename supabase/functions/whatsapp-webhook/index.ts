@@ -571,6 +571,7 @@ serve(async (req) => {
             await supabase.from('transactions').insert({
               store_id: profile.store_id,
               type: 'fiado_payment',
+              quantity_change: 0,
               total_amount: amount,
               amount_received: amount,
               customer_id: ledger.id,
