@@ -4,7 +4,7 @@ import { useStoreContext } from '../context/StoreContext';
 import { useNavigate } from 'react-router-dom';
 
 export default function InventoryReconciliation() {
-  const { selectedStore, loading, isDemo } = useStoreContext();
+  const { selectedStore, loading } = useStoreContext();
   const navigate = useNavigate();
   const [audits, setAudits] = useState<any[]>([]);
   const [totalShrinkage, setTotalShrinkage] = useState(0);
