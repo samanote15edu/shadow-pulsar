@@ -266,7 +266,14 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <StatCard title="Ventas del Día" value={`$${stats.sales}`} delta="+12%" icon="💰" color="emerald" />
-          <StatCard title="Mermas (30d)" value={`$${Math.abs(stats.shrinkage)}`} delta={stats.shrinkage < 0 ? "Pérdida" : "Ajuste"} icon="📉" color={stats.shrinkage < 0 ? "red" : "sky"} />
+          <StatCard 
+            title="Mermas (30d)" 
+            value={`$${Math.abs(stats.shrinkage)}`} 
+            delta={stats.shrinkage < 0 ? "Pérdida" : "Ver Detalle"} 
+            icon="📉" 
+            color={stats.shrinkage < 0 ? "red" : "sky"} 
+            onClick={() => navigate('/audit')}
+          />
           <StatCard title="Stock Bajo" value={`${stats.lowStock} Items`} delta={stats.lowStock > 0 ? "Atención" : "Optimo"} icon="⚠️" color={stats.lowStock > 0 ? "amber" : "emerald"} />
           <StatCard 
             title="Fiado Total" 

@@ -5,6 +5,7 @@ import ReportView from './components/ReportView'
 import FastScan from './components/FastScan'
 import MovementLedger from './components/MovementLedger'
 import DebtorsLedger from './components/DebtorsLedger'
+import InventoryReconciliation from './components/InventoryReconciliation'
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
           <Route path="/ledger" element={<MovementLedger />} />
           <Route path="/scan/:token" element={<FastScan />} />
           <Route path="/debtors" element={<DebtorsLedger />} />
+          <Route path="/audit" element={<InventoryReconciliation />} />
         </Routes>
       </Router>
     </StoreProvider>
