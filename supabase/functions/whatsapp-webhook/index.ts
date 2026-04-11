@@ -607,10 +607,70 @@ serve(async (req) => {
       return new Response('OK', { status: 200 });
     }
 
-    // C. CÓDIGO INICIAL
+    // C. CÓDIGO INICIAL (Validación dinámica con Base de Datos)
+    const { data: invite } = await supabase
+      .from('invite_codes')
+      .select('*')
+      .eq('code', normalized.toUpperCase())
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (invite) {
+      // 1. Verificar Expiración
+      if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+        await sendWhatsAppMessage(from, "❌ Este código de invitación ha expirado. Por favor, solicita uno nuevo al dueño de la tienda.");
+        return new Response('OK', { status: 200 });
+      }
+
+      // 2. Verificar Usos
+      if (invite.current_uses >= invite.max_uses) {
+        await sendWhatsAppMessage(from, "❌ Este código ya ha sido utilizado el máximo de veces permitido.");
+        return new Response('OK', { status: 200 });
+      }
+
+      const metadata = invite.metadata || {};
+
+      // 3. Flujo Directo para Empleados
+      if (metadata.role === 'employee' && metadata.store_id) {
+        // Registrar empleado directamente
+        await supabase.from('profiles').insert({ 
+          whatsapp_number: from, 
+          role: 'employee', 
+          store_id: metadata.store_id,
+          full_name: 'Empleado' // Se puede pedir después o dejar genérico
+        });
+
+        // Incrementar uso del código
+        await supabase.from('invite_codes')
+          .update({ current_uses: invite.current_uses + 1 })
+          .eq('code', invite.code);
+
+        // Obtener info de la tienda para la bienvenida
+        const { data: store } = await supabase.from('stores').select('name').eq('id', metadata.store_id).single();
+        
+        await sendWhatsAppMessage(from, `✅ ¡Bienvenido! Has sido registrado como empleado en *${store?.name || 'la tienda'}*.\n\nYa puedes registrar ventas escribiendo algo como: "2 cocas" o "Fiado Maria: 1 gansito".`);
+
+        // Notificar al Dueño
+        const { data: owner } = await supabase.from('profiles').select('whatsapp_number').eq('store_id', metadata.store_id).eq('role', 'owner').maybeSingle();
+        if (owner) {
+          await sendWhatsAppMessage(owner.whatsapp_number, `📢 *Aviso:* Un nuevo empleado (Terminación ..${from.slice(-4)}) se ha unido a tu tienda usando el código *${invite.code}*.`);
+        }
+      } 
+      // 4. Flujo para Dueños Nuevos (Sin metadata de empleado)
+      else {
+        await supabase.from('registration_states').upsert({ whatsapp_number: from, step: 'awaiting_store_name' });
+        await sendWhatsAppMessage(from, "¡Código aceptado! ✅ ¿Cómo se llama tu negocio?");
+      }
+
+      await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
+      return new Response('OK', { status: 200 });
+    }
+
+    // Código genérico legado (opcional mantener o quitar)
     if (normalized === 'tiendita2026') {
       await supabase.from('registration_states').upsert({ whatsapp_number: from, step: 'awaiting_store_name' });
       await sendWhatsAppMessage(from, "¡Código aceptado! ✅ ¿Cómo se llama tu negocio?");
+      return new Response('OK', { status: 200 });
     }
 
     await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);

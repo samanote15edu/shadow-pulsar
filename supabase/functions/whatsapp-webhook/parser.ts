@@ -239,6 +239,7 @@ export async function executeCommand(
   // 6. PHYSICAL COUNT INITIATION
   const inventoryKeywords = ['iniciar conteo', 'comenzar conteo', 'conteo fisico', 'conteo físico'];
   if (inventoryKeywords.some(k => lowerMsg.includes(k))) {
+    if (userRole !== 'owner' && userRole !== 'manager') return { responseText: "❌ Solo los administradores pueden iniciar un conteo de inventario físico." };
     const { data: prods } = await supabase
       .from('products')
       .select('*')
@@ -386,6 +387,33 @@ export async function executeCommand(
     
     const magicLink = `https://shadow-pulsar.vercel.app/?s=${storeId}`;
     return { responseText: `🖥️ *Acceso al Panel de Control*\n\nTu link seguro para entrar al Dashboard:\n${magicLink}\n\n⚠️ Mantén este link en privado.` };
+  }
+
+  // 12. INVITE EMPLOYEE COMMAND
+  if (lowerMsg === 'invitar empleado' || lowerMsg === 'invitar') {
+    if (userRole !== 'owner') return { responseText: "❌ Solo el dueño de la tienda puede invitar empleados." };
+
+    const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const inviteCode = `EMP-${randomStr}`;
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24);
+
+    await supabase.from('invite_codes').insert({
+      code: inviteCode,
+      max_uses: 1,
+      metadata: { store_id: storeId, role: 'employee' },
+      expires_at: expiresAt.toISOString()
+    });
+
+    let msg = `🎟️ *INVITACIÓN PARA EMPLEADO*\n\n`;
+    msg += `Has generado un código de acceso para un nuevo colaborador:\n\n`;
+    msg += `Código: *${inviteCode}*\n`;
+    msg += `⏰ Vence en: 24 horas (${expiresAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})\n\n`;
+    msg += `*Instrucciones para el empleado:*\n`;
+    msg += `1. Escribir "Hola" a este número de WhatsApp.\n`;
+    msg += `2. Cuando el bot pida el código, enviar: *${inviteCode}*`;
+    
+    return { responseText: msg };
   }
 
   // 10. BARCODE SCANNER
