@@ -4,10 +4,16 @@ import { useStoreContext } from '../context/StoreContext';
 import { useNavigate } from 'react-router-dom';
 
 export default function InventoryReconciliation() {
-  const { selectedStore, loading } = useStoreContext();
+  const { selectedStore, loading, userRole } = useStoreContext();
   const navigate = useNavigate();
   const [audits, setAudits] = useState<any[]>([]);
   const [totalShrinkage, setTotalShrinkage] = useState(0);
+
+  useEffect(() => {
+    if (!loading && userRole === 'employee') {
+      navigate('/');
+    }
+  }, [loading, userRole, navigate]);
 
   const fetchData = async () => {
     if (!selectedStore) return;

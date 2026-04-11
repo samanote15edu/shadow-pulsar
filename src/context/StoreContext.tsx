@@ -14,6 +14,7 @@ interface StoreContextType {
   loading: boolean;
   isDemo: boolean;
   userName: string | null;
+  userRole: 'owner' | 'employee' | null;
   logout: () => Promise<void>;
 }
 
@@ -31,6 +32,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [loading, setLoading] = useState(true);
   const [isDemo, setIsDemo] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<'owner' | 'employee' | null>(null);
 
   useEffect(() => {
     async function fetchStores() {
@@ -68,7 +70,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               .eq('store_id', magicStoreId)
               .maybeSingle();
             
-            if (profile) setUserName(profile.full_name);
+            if (profile) {
+              setUserName(profile.full_name);
+              // Magic link is currently considered admin/owner access
+              setUserRole('owner');
+            }
             
             setLoading(false);
             return;
@@ -85,9 +91,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setStores([DEMO_STORE]);
           setSelectedStore(DEMO_STORE);
           setIsDemo(true);
+          setUserRole('owner'); // Demo is always owner for testing
           setLoading(false);
           return;
         }
+
+        // Fetch profile to get role
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role, full_name')
+          .eq('id', user.id)
+          .maybeSingle();
 
         const { data: storesList, error: storesError } = await supabase
           .from('stores')
@@ -97,7 +111,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!storesError && storesList && storesList.length > 0) {
           setStores(storesList);
           setSelectedStore(storesList[0]);
-          setUserName(user.user_metadata?.full_name || null);
+          setUserName(profile?.full_name || user.user_metadata?.full_name || null);
+          setUserRole((profile?.role as any) || 'employee');
           setIsDemo(false);
         }
       } catch (err) {
@@ -116,7 +131,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   return (
-    <StoreContext.Provider value={{ selectedStore, stores, setSelectedStore, loading, isDemo, userName, logout }}>
+    <StoreContext.Provider value={{ selectedStore, stores, setSelectedStore, loading, isDemo, userName, userRole, logout }}>
       {children}
     </StoreContext.Provider>
   );

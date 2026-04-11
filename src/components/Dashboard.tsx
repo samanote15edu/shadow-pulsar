@@ -47,7 +47,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onOpenScan }: DashboardProps) {
-  const { selectedStore, stores, setSelectedStore, loading, isDemo, userName, logout } = useStoreContext();
+  const { selectedStore, stores, setSelectedStore, loading, isDemo, userName, userRole, logout } = useStoreContext();
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [recentActivity, setRecentActivity] = useState<Transaction[]>([]);
@@ -266,14 +266,16 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <StatCard title="Ventas del Día" value={`$${stats.sales}`} delta="+12%" icon="💰" color="emerald" />
-          <StatCard 
-            title="Mermas (30d)" 
-            value={`$${Math.abs(stats.shrinkage)}`} 
-            delta={stats.shrinkage < 0 ? "Pérdida" : "Ver Detalle"} 
-            icon="📉" 
-            color={stats.shrinkage < 0 ? "red" : "sky"} 
-            onClick={() => navigate('/audit')}
-          />
+          {userRole === 'owner' && (
+            <StatCard 
+              title="Mermas (30d)" 
+              value={`$${Math.abs(stats.shrinkage)}`} 
+              delta={stats.shrinkage < 0 ? "Pérdida" : "Ver Detalle"} 
+              icon="📉" 
+              color={stats.shrinkage < 0 ? "red" : "sky"} 
+              onClick={() => navigate('/audit')}
+            />
+          )}
           <StatCard title="Stock Bajo" value={`${stats.lowStock} Items`} delta={stats.lowStock > 0 ? "Atención" : "Optimo"} icon="⚠️" color={stats.lowStock > 0 ? "amber" : "emerald"} />
           <StatCard 
             title="Fiado Total" 
@@ -288,12 +290,14 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
         <div className="glass-pane rounded-3xl p-6 h-fit max-h-[500px] overflow-y-auto">
           <h2 className="text-lg font-semibold mb-4 flex items-center justify-between font-black uppercase tracking-tighter italic">
             <span className="flex items-center gap-2"><span className="text-green-400 animate-pulse">●</span> Actividad Reciente</span>
-            <button 
-              onClick={() => navigate('/ledger')}
-              className="text-[10px] text-sky-400 hover:text-sky-300 transition-colors tracking-widest"
-            >
-              Ver Todo →
-            </button>
+            {userRole === 'owner' && (
+              <button 
+                onClick={() => navigate('/ledger')}
+                className="text-[10px] text-sky-400 hover:text-sky-300 transition-colors tracking-widest"
+              >
+                Ver Todo →
+              </button>
+            )}
           </h2>
           <div className="space-y-4">
             {recentActivity.length > 0 ? recentActivity.map(a => (
@@ -301,6 +305,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
                 key={a.id} 
                 transaction={a}
                 onVoid={() => handleVoid(a)}
+                showVoid={userRole === 'owner'}
               />
             )) : <p className="text-slate-500 text-sm">No hay actividad reciente.</p>}
           </div>
@@ -311,7 +316,9 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
             <h2 className="text-lg font-semibold">Inventario de Productos</h2>
             <div className="flex gap-2">
               <button onClick={onOpenScan} className="bg-sky-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-sky-600 transition-colors flex items-center gap-2 shadow-lg shadow-sky-500/20 uppercase tracking-widest"><span>📷</span> Escanear</button>
-              <button onClick={() => setIsAddModalOpen(true)} className="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-700 transition-colors uppercase tracking-widest">+ Nuevo</button>
+              {userRole === 'owner' && (
+                <button onClick={() => setIsAddModalOpen(true)} className="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-700 transition-colors uppercase tracking-widest">+ Nuevo</button>
+              )}
             </div>
           </div>
           
@@ -321,23 +328,33 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
                 <tr className="text-slate-500 text-xs font-black uppercase tracking-widest border-b border-slate-800">
                   <th className="p-4 pl-6">Producto</th>
                   <th className="p-4 text-center">Stock</th>
-                  <th className="p-4 text-center">Costo</th>
+                  {userRole === 'owner' && <th className="p-4 text-center">Costo</th>}
                   <th className="p-4 text-center">Venta</th>
                   <th className="p-4">Estado</th>
                   <th className="p-4 text-right pr-6">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
-                {products.length > 0 ? products.map(p => (
-                  <ProductRow key={p.id} product={p} onEdit={() => handleEditClick(p)} />
-                )) : <tr><td colSpan={6} className="p-8 text-center text-slate-500">No hay productos registrados.</td></tr>}
+                  {products.length > 0 ? products.map(p => (
+                    <ProductRow 
+                      key={p.id} 
+                      product={p} 
+                      onEdit={() => handleEditClick(p)} 
+                      userRole={userRole}
+                    />
+                  )) : <tr><td colSpan={userRole === 'owner' ? 6 : 5} className="p-8 text-center text-slate-500">No hay productos registrados.</td></tr>}
               </tbody>
             </table>
 
             <div className="md:hidden divide-y divide-slate-800/50">
-              {products.length > 0 ? products.map(p => (
-                <ProductCard key={p.id} product={p} onEdit={() => handleEditClick(p)} />
-              )) : <div className="p-8 text-center text-slate-500">No hay productos registrados.</div>}
+                {products.length > 0 ? products.map(p => (
+                  <ProductCard 
+                    key={p.id} 
+                    product={p} 
+                    onEdit={() => handleEditClick(p)} 
+                    userRole={userRole}
+                  />
+                )) : <div className="p-8 text-center text-slate-500">No hay productos registrados.</div>}
             </div>
           </div>
         </div>
@@ -381,7 +398,7 @@ const StatCard: React.FC<{ title: string; value: string; delta: string; icon: st
   </div>
 );
 
-const ActivityItem: React.FC<{ transaction: Transaction, onVoid: () => void }> = ({ transaction, onVoid }) => {
+const ActivityItem: React.FC<{ transaction: Transaction, onVoid: () => void, showVoid: boolean }> = ({ transaction, onVoid, showVoid }) => {
   const time = new Date(transaction.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const isPayment = transaction.type === 'fiado_payment';
   const msg = isPayment 
@@ -409,7 +426,7 @@ const ActivityItem: React.FC<{ transaction: Transaction, onVoid: () => void }> =
           )}
         </div>
       </div>
-      {transaction.type === 'sale' && !transaction.is_voided && (
+      {transaction.type === 'sale' && !transaction.is_voided && showVoid && (
         <button 
           onClick={(e) => { e.stopPropagation(); onVoid(); }}
           className="text-[9px] font-black uppercase bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all px-3 py-1.5 rounded-lg active:scale-95"
@@ -422,7 +439,7 @@ const ActivityItem: React.FC<{ transaction: Transaction, onVoid: () => void }> =
   );
 };
 
-const ProductRow: React.FC<{ product: Product, onEdit: () => void }> = ({ product, onEdit }) => {
+const ProductRow: React.FC<{ product: Product, onEdit: () => void, userRole: string | null }> = ({ product, onEdit, userRole }) => {
   const isLow = product.current_stock <= product.min_stock_alert;
   const color = isLow ? 'amber' : 'emerald';
   const status = isLow ? 'Bajo' : 'Suficiente';
@@ -436,7 +453,7 @@ const ProductRow: React.FC<{ product: Product, onEdit: () => void }> = ({ produc
           <span className="text-[10px] text-slate-500 uppercase font-black bg-white/5 px-1 rounded-sm">{product.unit_of_measure}</span>
         </div>
       </td>
-      <td className="p-4 text-center text-sm font-mono text-slate-400">${product.last_cost_price}</td>
+      {userRole === 'owner' && <td className="p-4 text-center text-sm font-mono text-slate-400">${product.last_cost_price}</td>}
       <td className="p-4 text-center text-sm font-mono text-sky-400 font-bold">${product.base_price}</td>
       <td className="p-4">
         <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase bg-${color}-500/10 text-${color}-400`}>
@@ -445,24 +462,29 @@ const ProductRow: React.FC<{ product: Product, onEdit: () => void }> = ({ produc
         </span>
       </td>
       <td className="p-4 text-right pr-6">
-        <button 
-          onClick={onEdit}
-          className="text-slate-600 hover:text-white transition-colors text-xs font-black italic uppercase tracking-tighter"
-        >
-          Editar
-        </button>
+        {userRole === 'owner' && (
+          <button 
+            onClick={onEdit}
+            className="text-slate-600 hover:text-white transition-colors text-xs font-black italic uppercase tracking-tighter"
+          >
+            Editar
+          </button>
+        )}
       </td>
     </tr>
   );
 };
 
-const ProductCard: React.FC<{ product: Product, onEdit: () => void }> = ({ product, onEdit }) => {
+const ProductCard: React.FC<{ product: Product, onEdit: () => void, userRole: string | null }> = ({ product, onEdit, userRole }) => {
   const isLow = product.current_stock <= product.min_stock_alert;
   const color = isLow ? 'amber' : 'emerald';
   const status = isLow ? 'Bajo' : 'Suficiente';
 
   return (
-    <div className="p-4 hover:bg-white/[0.02] transition-colors active:bg-white/[0.05]" onClick={onEdit}>
+    <div 
+      className="p-4 hover:bg-white/[0.02] transition-colors active:bg-white/[0.05]" 
+      onClick={() => userRole === 'owner' && onEdit()}
+    >
       <div className="flex justify-between items-start mb-4">
         <h3 className="font-bold text-slate-100">{product.name}</h3>
         <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase bg-${color}-500/10 text-${color}-400`}>
@@ -483,14 +505,22 @@ const ProductCard: React.FC<{ product: Product, onEdit: () => void }> = ({ produ
           <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-1">Costo</p>
           <p className="text-sm font-mono font-bold text-slate-400">${product.last_cost_price}</p>
         </div>
-        <div className="bg-sky-500/5 p-3 rounded-2xl border border-sky-500/10">
+        <div className="bg-sky-500/5 p-3 rounded-2xl border border-sky-500/10 col-span-2 sm:col-span-1">
           <p className="text-sky-500/50 text-[9px] font-black uppercase tracking-widest mb-1">Venta</p>
           <p className="text-sm font-mono font-bold text-sky-400">${product.base_price}</p>
         </div>
+        {userRole === 'owner' && (
+          <div className="bg-slate-900/50 p-3 rounded-2xl border border-white/[0.03]">
+            <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-1">Costo</p>
+            <p className="text-sm font-mono font-bold text-slate-400">${product.last_cost_price}</p>
+          </div>
+        )}
       </div>
-      <div className="mt-3 text-right">
-        <span className="text-[9px] text-slate-600 font-black uppercase tracking-tighter italic">Toca para editar</span>
-      </div>
+      {userRole === 'owner' && (
+        <div className="mt-3 text-right">
+          <span className="text-[9px] text-slate-600 font-black uppercase tracking-tighter italic">Toca para editar</span>
+        </div>
+      )}
     </div>
   );
 };

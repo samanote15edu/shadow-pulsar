@@ -26,10 +26,16 @@ const DUMMY_ALL_ACTIVITIES: Transaction[] = [
 ];
 
 export default function MovementLedger() {
-  const { selectedStore, loading, isDemo } = useStoreContext();
+  const { selectedStore, loading, isDemo, userRole } = useStoreContext();
   const navigate = useNavigate();
   const [activities, setActivities] = useState<Transaction[]>([]);
   const [page, setPage] = useState(0);
+
+  useEffect(() => {
+    if (!loading && userRole === 'employee') {
+      navigate('/');
+    }
+  }, [loading, userRole, navigate]);
   const [hasMore, setHasMore] = useState(true);
   const [isLodingMore, setIsLoadingMore] = useState(false);
   const [filterType, setFilterType] = useState('all');
