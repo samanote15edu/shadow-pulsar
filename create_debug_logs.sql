@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS debug_logs (
+  id BIGSERIAL PRIMARY KEY,
+  payload JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);

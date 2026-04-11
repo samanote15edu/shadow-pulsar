@@ -65,12 +65,17 @@ function normalizeText(text: string): string {
     .replace(/[\u0300-\u036f]/g, ""); // Quitar acentos
 }
 
-// Registro de depuración en la base de datos
+// Registro de depuración robusto (No bloqueante)
 async function logDebug(phone: string, action: string, payload: any) {
-  await supabase.from('debug_logs').insert({ 
-    payload: { phone, action, ...payload },
-    created_at: new Date().toISOString()
-  });
+  try {
+    const { error } = await supabase.from('debug_logs').insert({ 
+      payload: { phone, action, ...payload },
+      created_at: new Date().toISOString()
+    });
+    if (error) console.warn(`[LOG ERROR] ${action}: ${error.message}`);
+  } catch (e) {
+    // Ignorar errores de log para no bloquear el flujo principal
+  }
 }
 
 // --- SERVIDOR PRINCIPAL ---
@@ -112,6 +117,7 @@ serve(async (req) => {
 
     if (lockError) return new Response('OK', { status: 200 });
 
+    console.log(`[BOT] Mensaje recibido de ${from}: ${text}`);
     await logDebug(from, 'message_received', { text, normalized, messageId, buttonId });
 
     // --- 2. CONSULTAS DE CONTEXTO ---
@@ -123,6 +129,7 @@ serve(async (req) => {
     const profile = profileRes.data;
     const state = stateRes.data;
 
+    console.log(`[BOT] Contexto: Profile=${!!profile}, State=${state?.step || 'none'}`);
     await logDebug(from, 'context_check', { hasProfile: !!profile, state: state?.step || 'none' });
 
     // --- 3. LOGICA PRINCIPAL ---
@@ -592,17 +599,24 @@ serve(async (req) => {
 
     // B. COMANDOS NUEVOS
     if (profile) {
+      console.time('executeCommand');
       const res = await executeCommand(text, supabase, profile.store_id, profile.role, from);
+      console.timeEnd('executeCommand');
+      
       if (res.nextStep) {
         await supabase.from('registration_states').upsert({ whatsapp_number: from, step: res.nextStep, metadata: res.metadata });
       }
+
       if (res.responseText) {
         if (['awaiting_confirmation', 'awaiting_bulk_confirmation', 'awaiting_void_confirmation', 'awaiting_cost_confirmation', 'awaiting_price_confirmation', 'awaiting_payment_ledgers_confirmation'].includes(res.nextStep || '')) {
           await sendWhatsAppButtons(from, res.responseText, [{ id: 'yes', title: 'SÍ ✅' }, { id: 'no', title: 'NO ❌' }]);
         } else {
           await sendWhatsAppMessage(from, res.responseText);
         }
+      } else {
+        await sendWhatsAppMessage(from, "🤔 No entendí. Prueba con: 'Inventario' o una lista como '2 cocas'.");
       }
+
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
       return new Response('OK', { status: 200 });
     }
