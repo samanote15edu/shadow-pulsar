@@ -321,8 +321,9 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
             )) : <p className="text-slate-500 text-sm">No hay actividad reciente.</p>}
           </div>
         </div>
+      </div>
 
-        <div className="lg:col-span-3 glass-pane rounded-3xl overflow-hidden mt-4">
+      <div className="lg:col-span-3 glass-pane rounded-3xl overflow-hidden mt-4">
           <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-white/[0.02]">
             <h2 className="text-lg font-semibold">Inventario de Productos</h2>
             <div className="flex gap-2">
