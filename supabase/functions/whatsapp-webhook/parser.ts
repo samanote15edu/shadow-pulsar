@@ -425,18 +425,6 @@ export async function executeCommand(
     return { responseText: `📱 *Escáner Activado*\n\nPULSA EL LINK PARA ABRIR LA CÁMARA:\n${scanLink}` };
   }
 
-  // 13. DEBUG COMMAND: PROFILES (Hidden)
-  if (lowerMsg === 'debug_profiles') {
-    const { data: profiles } = await supabase.from('profiles').select('*').eq('store_id', storeId);
-    if (!profiles || profiles.length === 0) return { responseText: "No hay perfiles." };
-    
-    let res = "👥 *DIAGNÓSTICO DE PERFILES*\n\n";
-    profiles.forEach((p, i) => {
-      res += `${i + 1}. *${p.full_name}*\n   Rol: ${p.role}\n   ID: ..${p.id.slice(-6)}\n   Tel: ..${p.whatsapp_number.slice(-4)}\n\n`;
-    });
-    return { responseText: res };
-  }
-
   return { responseText: "🤔 No entendí. Prueba con: 'Inventario', '2 cocas' o 'Escanear'." };
 }
 

@@ -62,7 +62,9 @@ function normalizeText(text: string): string {
     .trim()
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, ""); // Quitar acentos
+    .replace(/[\u0300-\u036f]/g, "") // Quitar acentos
+    .replace(/[^\w\s]|_/g, "") // Quitar símbolos, apóstrofes y puntuación
+    .replace(/\s+/g, " "); // Colapsar múltiples espacios
 }
 
 // Registro de depuración robusto (No bloqueante)
@@ -436,7 +438,28 @@ serve(async (req) => {
 
       // SIGUIENTES ESTADOS (Auditoría, Similitud, Anulación, Ledger)
       // ... manteniendo el resto de la lógica ...
-      else if (step === 'awaiting_similarity_confirmation') { /* ya manejada arriba */ }
+      else if (step === 'awaiting_similarity_confirmation') {
+        if (isPositive) {
+          await supabase.from('registration_states').update({
+            step: 'awaiting_product_cost',
+            metadata: { ...metadata }
+          }).eq('whatsapp_number', from);
+          
+          await sendWhatsAppMessage(from, `📦 *Surtido de ${metadata.productName}*\n\n¿Cuánto te costó cada ${metadata.unit || 'unidad'} esta vez?`);
+        } else if (isNegative) {
+          await supabase.from('registration_states').update({
+            step: 'awaiting_new_product_details',
+            metadata: { productName: metadata.newName, qty: metadata.qty }
+          }).eq('whatsapp_number', from);
+          
+          await sendWhatsAppMessage(from, `✨ *¡Nuevo Producto!* ✨\n\nRegistrando "${metadata.newName}".\n\nPor favor, dime:\n1. ¿Cuánto te costó?\n2. ¿A cuánto lo venderás?\n\n(Ejemplo: 12 y 20)`);
+        } else {
+          await sendWhatsAppButtons(from, `🔍 *¿Es el mismo producto?*\n\n¿Es "${metadata.productName}" lo mismo que "${metadata.newName}"?`, [
+            { id: 'yes', title: 'SÍ ✅' },
+            { id: 'no', title: 'NO ❌' }
+          ]);
+        }
+      }
       else if (step === 'awaiting_void_confirmation') {
           if (isPositive) {
             await supabase.from('transactions').update({ is_voided: true }).eq('id', metadata.transactionId);
