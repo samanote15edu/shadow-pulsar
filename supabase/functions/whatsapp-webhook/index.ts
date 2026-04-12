@@ -78,6 +78,24 @@ async function logDebug(phone: string, action: string, payload: any) {
   }
 }
 
+async function notifyOwner(storeId: string, message: string) {
+  try {
+    const { data: owner } = await supabase
+      .from('profiles')
+      .select('whatsapp_number, id')
+      .eq('store_id', storeId)
+      .eq('role', 'owner')
+      .maybeSingle();
+
+    if (owner) {
+      const magicLink = `https://shadow-pulsar.vercel.app/?s=${storeId}&u=${owner.id}`;
+      await sendWhatsAppMessage(owner.whatsapp_number, `${message}\n\n🔗 *Acceso Directo:* ${magicLink}`);
+    }
+  } catch (err) {
+    console.error('[NOTIFY ERROR]', err);
+  }
+}
+
 // --- SERVIDOR PRINCIPAL ---
 serve(async (req) => {
   if (req.method === 'GET') {
@@ -198,6 +216,7 @@ serve(async (req) => {
               requester_phone: from,
               status: 'pending'
             });
+            await notifyOwner(profile.store_id, `📢 *Nueva Aprobación Pendiente*\n\n*${profile.full_name}* ha registrado un *Surtido* de +${metadata.qty} unidades para *${metadata.productName}*.`);
             await supabase.from('registration_states').delete().eq('whatsapp_number', from);
             await sendWhatsAppMessage(from, `⏳ *Surtido Pendiente*\n\nTu registro de +${metadata.qty} unidades de *${metadata.productName}* ha sido enviado para aprobación del dueño.`);
           } else {
@@ -237,6 +256,7 @@ serve(async (req) => {
               requester_phone: from,
               status: 'pending'
             });
+            await notifyOwner(profile.store_id, `📢 *Nueva Aprobación Pendiente*\n\n*${profile.full_name}* quiere dar de alta un *Producto Nuevo*: *${metadata.productName}*.`);
             await supabase.from('registration_states').delete().eq('whatsapp_number', from);
             await sendWhatsAppMessage(from, `⏳ *Producto Nuevo Pendiente*\n\nEl registro de *${metadata.productName}* ha sido enviado para aprobación del dueño.`);
           } else {
@@ -448,6 +468,7 @@ serve(async (req) => {
                     requester_phone: from,
                     status: 'pending'
                   });
+                  await notifyOwner(profile.store_id, `📢 *Nueva Aprobación Pendiente*\n\n*${profile.full_name}* ha registrado un *Ajuste de Auditoría* para *${metadata.names[idx]}* (Diferencia: ${diff}).`);
                 }
               } else {
                 await supabase.from('products').update({ current_stock: actual }).eq('id', metadata.productsIds[idx]);
@@ -586,6 +607,7 @@ serve(async (req) => {
               requester_phone: from,
               status: 'pending'
             });
+            await notifyOwner(profile.store_id, `📢 *Nueva Aprobación Pendiente*\n\n*${profile.full_name}* solicita cambiar el *Costo* de *${metadata.productName}* a $${metadata.newCost}.`);
             await sendWhatsAppMessage(from, `⏳ *Ajuste de Costo Pendiente*\n\nSe ha enviado la solicitud para cambiar el costo de *${metadata.productName}* a $${metadata.newCost}.`);
           } else {
             await supabase.from('products').update({ last_cost_price: metadata.newCost }).eq('id', metadata.productId);
@@ -610,6 +632,7 @@ serve(async (req) => {
               requester_phone: from,
               status: 'pending'
             });
+            await notifyOwner(profile.store_id, `📢 *Nueva Aprobación Pendiente*\n\n*${profile.full_name}* solicita cambiar el *Precio de Venta* de *${metadata.productName}* a $${metadata.newPrice}.`);
             await sendWhatsAppMessage(from, `⏳ *Ajuste de Precio Pendiente*\n\nSe ha enviado la solicitud para cambiar el precio de *${metadata.productName}* a $${metadata.newPrice}.`);
           } else {
             await supabase.from('products').update({ base_price: metadata.newPrice }).eq('id', metadata.productId);
