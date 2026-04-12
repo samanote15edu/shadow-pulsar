@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useStoreContext } from '../context/StoreContext';
 import { useNavigate } from 'react-router-dom';
+import { downloadCSV } from '../utils/export';
 
 interface Transaction {
   id: string;
@@ -113,6 +114,20 @@ export default function MovementLedger() {
     }
   };
 
+  const handleExport = () => {
+    if (!activities.length) return;
+    const exportData = activities.map(a => ({
+      Fecha: new Date(a.created_at).toLocaleString(),
+      Tipo: a.type,
+      Producto: a.product_name,
+      Cantidad: a.quantity_change,
+      Monto_Total: a.total_amount,
+      Cobrado: a.amount_received,
+      Info: a.customer_name || a.notes || ''
+    }));
+    downloadCSV(exportData, 'Historial_Movimientos');
+  };
+
   // Infinite scroll for mobile
   useEffect(() => {
     if (!isMobile || !hasMore || isLodingMore) return;
@@ -190,108 +205,130 @@ export default function MovementLedger() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
-      <header className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <button onClick={() => navigate('/')} className="text-sky-400 text-xs font-black uppercase tracking-widest mb-2 flex items-center gap-2">
+      <header className="mb-10 max-w-5xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+        <div className="flex-1">
+          <button 
+            onClick={() => navigate('/')} 
+            className="group flex items-center gap-2 text-sky-400 text-[10px] font-black uppercase tracking-widest mb-4 hover:text-sky-300 transition-colors"
+          >
             ← Volver al Panel
           </button>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">Libro de Movimientos</h1>
-          <p className="text-slate-400 text-sm">Historial y Auditoría de Stock</p>
+          <h1 className="text-4xl font-black bg-gradient-to-r from-white via-sky-300 to-indigo-400 bg-clip-text text-transparent tracking-tighter uppercase italic text-shadow-glow">
+            Libro de Movimientos
+          </h1>
+          <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-2 border-l-2 border-sky-500 pl-3">Bitácora General de Actividad</p>
         </div>
 
-        <div className="flex flex-wrap gap-3 w-full md:w-auto">
-          <input 
-            type="date" 
-            className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-xs"
-            value={dateRange.start}
-            onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-          />
-          <input 
-            type="date" 
-            className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-xs"
-            value={dateRange.end}
-            onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-          />
-          <select 
-            className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-xs"
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
+        <div className="flex flex-col gap-3 w-full md:w-auto">
+          <button 
+            onClick={handleExport}
+            className="bg-white/5 hover:bg-white/10 text-white border border-white/10 px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all mb-2 flex items-center justify-center gap-2 shadow-xl"
           >
-            <option value="all">Todos los Tipos</option>
-            <option value="sale">Ventas</option>
-            <option value="fiado_payment">Abonos/Pagos</option>
-            <option value="restock">Surtidos</option>
-            <option value="void">Anulaciones</option>
-            <option value="correction">Ajustes</option>
-          </select>
+            <span className="text-lg">↓</span> Descargar Historial CSV
+          </button>
+
+          <div className="flex flex-wrap gap-2">
+            <input 
+              type="date" 
+              className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-[10px] font-black text-slate-400 uppercase focus:border-sky-500/50 outline-none transition-all"
+              value={dateRange.start}
+              onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+            />
+            <input 
+              type="date" 
+              className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-[10px] font-black text-slate-400 uppercase focus:border-sky-500/50 outline-none transition-all"
+              value={dateRange.end}
+              onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+            />
+            <select 
+              className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-[10px] font-black text-sky-400 uppercase tracking-widest appearance-none pr-8 relative"
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+            >
+              <option value="all">TODOS</option>
+              <option value="sale">VENTAS</option>
+              <option value="fiado_payment">ABONOS</option>
+              <option value="restock">SURTIDOS</option>
+              <option value="void">ANULADOS</option>
+              <option value="correction">AJUSTES</option>
+            </select>
+          </div>
         </div>
       </header>
 
-      <div className="glass-pane rounded-3xl overflow-hidden">
+      <div className="glass-pane rounded-3xl overflow-hidden border border-white/5 shadow-2xl max-w-5xl mx-auto">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="text-slate-500 text-[10px] font-black uppercase tracking-widest border-b border-slate-800 bg-white/[0.02]">
-                <th className="p-4 pl-6">Fecha</th>
-                <th className="p-4">Tipo</th>
-                <th className="p-4">Producto</th>
-                <th className="p-4 text-center">Cant.</th>
-                <th className="p-4 text-right">Monto</th>
-                <th className="p-4 text-right">Cobrado</th>
-                <th className="p-4">Deudor/Notas</th>
-                <th className="p-4 text-right pr-6">Acción</th>
+              <tr className="text-slate-500 text-[10px] font-black uppercase tracking-widest border-b border-white/5 bg-white/[0.03]">
+                <th className="p-6">Fecha</th>
+                <th className="p-6">Tipo de Movimiento</th>
+                <th className="p-6">Detalle</th>
+                <th className="p-6 text-center">Cant.</th>
+                <th className="p-6 text-right">Monto</th>
+                <th className="p-6 text-right">Cobrado</th>
+                <th className="p-6 pr-8 text-right">Acción</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/50">
+            <tbody className="divide-y divide-white/5">
               {activities.map(a => (
-                <tr key={a.id} className={`hover:bg-white/[0.02] transition-colors ${a.type === 'void' ? 'bg-red-500/5 italic' : ''} ${a.is_voided ? 'opacity-40 line-through decoration-red-500/50' : ''}`}>
-                  <td className="p-4 pl-6 text-xs text-slate-400">
-                    {new Date(a.created_at).toLocaleDateString()}<br/>
-                    <span className="text-[10px] opacity-50">{new Date(a.created_at).toLocaleTimeString()}</span>
+                <tr key={a.id} className={`group hover:bg-white/[0.02] transition-colors ${a.type === 'void' ? 'opacity-50 italic' : ''} ${a.is_voided ? 'opacity-40 line-through decoration-red-500/50' : ''}`}>
+                  <td className="p-6">
+                    <p className="text-xs font-bold text-slate-300">
+                      {new Date(a.created_at).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-medium">
+                      {new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
                   </td>
-                  <td className="p-4">
-                    <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-md ${
-                      a.type === 'sale' ? 'bg-sky-500/10 text-sky-400' :
-                      a.type === 'fiado_payment' ? 'bg-indigo-500/10 text-indigo-400' :
-                      a.type === 'restock' ? 'bg-emerald-500/10 text-emerald-400' :
-                      a.type === 'void' ? 'bg-red-500/10 text-red-500' :
-                      a.type === 'correction' ? 'bg-amber-500/10 text-amber-500' :
-                      'bg-slate-500/10 text-slate-400'
+                  <td className="p-6">
+                    <span className={`text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border ${
+                      a.type === 'sale' ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' :
+                      a.type === 'fiado_payment' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' :
+                      a.type === 'restock' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                      a.type === 'void' ? 'bg-red-500/10 text-red-500 border-red-500/20' :
+                      a.type === 'correction' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' :
+                      'bg-slate-500/10 text-slate-400 border-slate-500/20'
                     }`}>
                       {a.type === 'sale' ? 'Venta' : a.type === 'fiado_payment' ? 'Abono' : a.type === 'restock' ? 'Surtido' : a.type === 'void' ? 'Anulado' : a.type === 'correction' ? 'Ajuste' : a.type}
                     </span>
                   </td>
-                  <td className="p-4 text-xs font-bold text-slate-200">{a.product_name}</td>
-                  <td className="p-4 text-center text-xs font-mono">{a.quantity_change > 0 ? '+' : ''}{a.quantity_change}</td>
-                  <td className="p-4 text-right text-xs font-mono">${a.total_amount || 0}</td>
-                  <td className="p-4 text-right text-xs font-mono">
+                  <td className="p-6">
+                    <p className="text-sm font-black text-white uppercase tracking-tight italic">{a.product_name}</p>
+                    {a.customer_name && (
+                       <p className="text-[9px] text-indigo-400 font-black uppercase tracking-widest mt-1">👤 {a.customer_name}</p>
+                    )}
+                    {a.notes && !a.customer_name && (
+                       <p className="text-[9px] text-slate-500 font-medium mt-1 truncate max-w-[120px]">{a.notes}</p>
+                    )}
+                  </td>
+                  <td className="p-6 text-center text-xs font-black italic">
+                    <span className={a.quantity_change > 0 ? 'text-emerald-400' : 'text-slate-300'}>
+                      {a.quantity_change > 0 ? '+' : ''}{a.quantity_change}
+                    </span>
+                  </td>
+                  <td className="p-6 text-right text-sm font-black italic text-white">${a.total_amount || 0}</td>
+                  <td className="p-6 text-right">
                     {a.type === 'sale' ? (
                       <div>
-                        <span className={a.amount_received < a.total_amount ? 'text-amber-400 font-bold' : 'text-emerald-400'}>
+                        <span className={`text-sm font-black italic ${a.amount_received < a.total_amount ? 'text-amber-400' : 'text-emerald-400'}`}>
                           ${a.amount_received || 0}
                         </span>
                         {a.amount_received < a.total_amount && (
-                          <div className="text-[9px] text-red-500 font-black">
-                            -${(a.total_amount - (a.amount_received || 0)).toFixed(2)}
+                          <div className="text-[9px] text-red-500 font-black uppercase tracking-tighter">
+                            Fiado: -${(a.total_amount - (a.amount_received || 0)).toFixed(2)}
                           </div>
                         )}
                       </div>
                     ) : a.type === 'fiado_payment' ? (
-                      <span className="text-emerald-400 font-bold">${a.amount_received || 0}</span>
-                    ) : '-'}
+                      <span className="text-emerald-400 font-black italic text-sm">${a.amount_received || 0}</span>
+                    ) : <span className="text-slate-600">—</span>}
                   </td>
-                  <td className="p-4 text-[10px] text-slate-500 max-w-[150px] truncate" title={a.customer_name || a.notes}>
-                    {a.customer_name ? (
-                      <span className="bg-indigo-500/10 text-indigo-300 px-2 py-1 rounded-md border border-indigo-500/20 font-bold uppercase">
-                        👤 {a.customer_name}
-                      </span>
-                    ) : (a.notes || '-')}
-                  </td>
-                  <td className="p-4 text-right pr-6">
+                  <td className="p-6 text-right pr-8">
                     {a.type === 'sale' && !a.is_voided && (
                       <button 
                         onClick={() => handleVoid(a)}
-                        className="text-[9px] font-black uppercase text-red-400/60 hover:text-red-400 transition-colors"
+                        className="bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all"
                       >
                         Anular
                       </button>
@@ -300,27 +337,29 @@ export default function MovementLedger() {
                 </tr>
               ))}
               {activities.length === 0 && !isLodingMore && (
-                <tr><td colSpan={7} className="p-12 text-center text-slate-500 text-sm">No se encontraron movimientos.</td></tr>
+                <tr><td colSpan={7} className="p-24 text-center">
+                  <span className="text-4xl opacity-20 block mb-4">🔍</span>
+                  <p className="text-slate-500 font-black uppercase text-[10px] tracking-[0.2em] italic">No se encontraron movimientos registrados</p>
+                </td></tr>
               )}
             </tbody>
           </table>
         </div>
 
-        {/* Paginación para Desktop */}
         {!isMobile && (
-          <div className="p-6 border-t border-slate-800 flex justify-between items-center bg-white/[0.01]">
-            <p className="text-xs text-slate-500 font-bold uppercase tracking-tighter">Página {page + 1}</p>
-            <div className="flex gap-2">
+          <div className="p-8 border-t border-white/5 flex justify-between side-center bg-white/[0.01]">
+            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Página {page + 1}</p>
+            <div className="flex gap-4">
               <button 
                 onClick={handlePrevPage} 
-                className="px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold disabled:opacity-30"
+                className="px-6 py-2 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest hover:bg-white/10 disabled:opacity-20 transition-all"
                 disabled={page === 0}
               >
                 Anterior
               </button>
               <button 
                 onClick={handleNextPage} 
-                className="px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold disabled:opacity-30"
+                className="px-6 py-2 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest hover:bg-white/10 disabled:opacity-20 transition-all"
                 disabled={!hasMore}
               >
                 Siguiente
@@ -329,10 +368,9 @@ export default function MovementLedger() {
           </div>
         )}
 
-        {/* Indicador de carga para móvil */}
         {isMobile && isLodingMore && (
-          <div className="p-8 text-center text-sky-500/50 animate-pulse text-xs font-black uppercase">
-            Cargando más...
+          <div className="p-8 text-center text-sky-500/50 animate-pulse text-[10px] font-black uppercase tracking-widest">
+            Sincronizando más datos...
           </div>
         )}
       </div>
