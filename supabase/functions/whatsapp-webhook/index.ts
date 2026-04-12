@@ -90,8 +90,13 @@ async function notifyOwner(storeId: string, message: string) {
       .maybeSingle();
 
     if (owner) {
+      console.log(`[NOTIFY] Enviando alerta a dueño (${owner.whatsapp_number})`);
       const magicLink = `https://shadow-pulsar.vercel.app/?s=${storeId}&u=${owner.id}`;
       await sendWhatsAppMessage(owner.whatsapp_number, `${message}\n\n🔗 *Acceso Directo:* ${magicLink}`);
+      await logDebug(owner.whatsapp_number, 'owner_notified', { storeId, message });
+    } else {
+      console.warn(`[NOTIFY] No se encontró dueño para la tienda ${storeId}`);
+      await logDebug('SYSTEM', 'owner_not_found', { storeId });
     }
   } catch (err) {
     console.error('[NOTIFY ERROR]', err);
@@ -106,11 +111,14 @@ async function checkAndNotifyLowStock(storeId: string, productId: string) {
       .eq('id', productId)
       .single();
 
-    if (prod && prod.current_stock <= prod.min_stock_alert) {
-      await notifyOwner(storeId, `⚠️ *ALERTA DE STOCK BAJO*\n\nEl producto *${prod.name}* tiene solo *${prod.current_stock}* unidades restantes. Es momento de resurtir.`);
+    if (prod) {
+      console.log(`[LOW STOCK CHECK] ${prod.name}: ${prod.current_stock} <= ${prod.min_stock_alert}`);
+      if (prod.current_stock <= prod.min_stock_alert) {
+        await notifyOwner(storeId, `⚠️ *ALERTA DE STOCK BAJO*\n\nEl producto *${prod.name}* tiene solo *${prod.current_stock}* unidades restantes. Es momento de resurtir.`);
+      }
     }
   } catch (err) {
-    console.error('[LOW STOCK NOTIFY ERROR]', err);
+    console.error('[LOW STOCK NOTIFY ERROR]', productId, err);
   }
 }
 
