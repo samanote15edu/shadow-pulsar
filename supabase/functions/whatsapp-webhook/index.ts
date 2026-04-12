@@ -187,18 +187,33 @@ serve(async (req) => {
         if (isNaN(cost)) {
           await sendWhatsAppMessage(from, "❌ Envía solo el número del costo (ej: 12.50)");
         } else {
-          await supabase.from('products').update({ last_cost_price: cost }).eq('id', metadata.productId);
-          await supabase.rpc('increment_stock', { row_id: metadata.productId, amount: metadata.qty });
-          await supabase.from('transactions').insert({
-            store_id: profile.store_id,
-            product_id: metadata.productId,
-            type: 'restock',
-            quantity_change: metadata.qty,
-            unit_price: cost,
-            total_amount: cost * metadata.qty
-          });
-          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-          await sendWhatsAppMessage(from, `✅ *Surtido Completado*\n\nProducto: ${metadata.productName}\nNuevo Costo: $${cost}\nCantidad: +${metadata.qty}`);
+          if (profile.role === 'employee') {
+            await supabase.from('inventory_approvals').insert({
+              store_id: profile.store_id,
+              product_id: metadata.productId,
+              type: 'restock',
+              quantity: metadata.qty,
+              new_value: cost,
+              requester_name: profile.full_name,
+              requester_phone: from,
+              status: 'pending'
+            });
+            await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+            await sendWhatsAppMessage(from, `⏳ *Surtido Pendiente*\n\nTu registro de +${metadata.qty} unidades de *${metadata.productName}* ha sido enviado para aprobación del dueño.`);
+          } else {
+            await supabase.from('products').update({ last_cost_price: cost }).eq('id', metadata.productId);
+            await supabase.rpc('increment_stock', { row_id: metadata.productId, amount: metadata.qty });
+            await supabase.from('transactions').insert({
+              store_id: profile.store_id,
+              product_id: metadata.productId,
+              type: 'restock',
+              quantity_change: metadata.qty,
+              unit_price: cost,
+              total_amount: cost * metadata.qty
+            });
+            await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+            await sendWhatsAppMessage(from, `✅ *Surtido Completado*\n\nProducto: ${metadata.productName}\nNuevo Costo: $${cost}\nCantidad: +${metadata.qty}`);
+          }
         }
       }
 
@@ -210,23 +225,39 @@ serve(async (req) => {
         } else {
           const cost = parseFloat(prices[0]);
           const sale = parseFloat(prices[1]);
-          const { data: prod } = await supabase.from('products').insert({
-            store_id: profile.store_id,
-            name: metadata.productName,
-            base_price: sale,
-            last_cost_price: cost,
-            current_stock: metadata.qty
-          }).select().single();
-          await supabase.from('transactions').insert({
-            store_id: profile.store_id,
-            product_id: prod.id,
-            type: 'restock',
-            quantity_change: metadata.qty,
-            unit_price: cost,
-            total_amount: cost * metadata.qty
-          });
-          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-          await sendWhatsAppMessage(from, `✅ *¡Producto Registrado!*\n\n${prod.name}\nCosto: $${cost}\nVenta: $${sale}\nStock: ${metadata.qty}`);
+          
+          if (profile.role === 'employee') {
+            await supabase.from('inventory_approvals').insert({
+              store_id: profile.store_id,
+              type: 'new_product',
+              quantity: metadata.qty,
+              new_value: cost,
+              metadata: { productName: metadata.productName, base_price: sale },
+              requester_name: profile.full_name,
+              requester_phone: from,
+              status: 'pending'
+            });
+            await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+            await sendWhatsAppMessage(from, `⏳ *Producto Nuevo Pendiente*\n\nEl registro de *${metadata.productName}* ha sido enviado para aprobación del dueño.`);
+          } else {
+            const { data: prod } = await supabase.from('products').insert({
+              store_id: profile.store_id,
+              name: metadata.productName,
+              base_price: sale,
+              last_cost_price: cost,
+              current_stock: metadata.qty
+            }).select().single();
+            await supabase.from('transactions').insert({
+              store_id: profile.store_id,
+              product_id: prod.id,
+              type: 'restock',
+              quantity_change: metadata.qty,
+              unit_price: cost,
+              total_amount: cost * metadata.qty
+            });
+            await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+            await sendWhatsAppMessage(from, `✅ *¡Producto Registrado!*\n\n${prod.name}\nCosto: $${cost}\nVenta: $${sale}\nStock: ${metadata.qty}`);
+          }
         }
       }
 
@@ -403,9 +434,26 @@ serve(async (req) => {
           } else {
             const actual = parseFloat(text.replace(/[^0-9.]/g, ''));
             if (!isNaN(actual)) {
-              await supabase.from('products').update({ current_stock: actual }).eq('id', metadata.productsIds[idx]);
-              const diff = actual - metadata.stocks[idx];
-              if (diff !== 0) await supabase.from('transactions').insert({ store_id: profile.store_id, product_id: metadata.productsIds[idx], type: 'correction', quantity_change: diff, notes: 'Auditoría' });
+              if (profile.role === 'employee') {
+                const diff = actual - metadata.stocks[idx];
+                if (diff !== 0) {
+                  await supabase.from('inventory_approvals').insert({
+                    store_id: profile.store_id,
+                    product_id: metadata.productsIds[idx],
+                    type: 'adjustment',
+                    quantity: diff,
+                    old_value: metadata.stocks[idx],
+                    new_value: actual,
+                    requester_name: profile.full_name,
+                    requester_phone: from,
+                    status: 'pending'
+                  });
+                }
+              } else {
+                await supabase.from('products').update({ current_stock: actual }).eq('id', metadata.productsIds[idx]);
+                const diff = actual - metadata.stocks[idx];
+                if (diff !== 0) await supabase.from('transactions').insert({ store_id: profile.store_id, product_id: metadata.productsIds[idx], type: 'correction', quantity_change: diff, notes: 'Auditoría' });
+              }
             }
             const nextIdx = idx + 1;
             if (nextIdx < metadata.productsIds.length) {
@@ -414,7 +462,8 @@ serve(async (req) => {
               await sendWhatsAppMessage(from, `*Producto: ${nextName}*\n¿Cuántos hay?`);
             } else {
               await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-              await sendWhatsAppMessage(from, "🏁 Auditoría terminada.");
+              const msg = profile.role === 'employee' ? "🏁 Conteo finalizado. Los ajustes han sido enviados para aprobación." : "🏁 Auditoría terminada. Stock actualizado.";
+              await sendWhatsAppMessage(from, msg);
             }
           }
       }
@@ -527,25 +576,49 @@ serve(async (req) => {
       // ESTADO: Confirmación de Ajuste de Costo Directo
       else if (step === 'awaiting_cost_confirmation') {
         if (isPositive) {
-          await supabase.from('products').update({ last_cost_price: metadata.newCost }).eq('id', metadata.productId);
-          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-          await sendWhatsAppMessage(from, `✅ *Costo Actualizado*\n\nEl nuevo costo para *${metadata.productName}* es $${metadata.newCost}.`);
+          if (profile.role === 'employee') {
+            await supabase.from('inventory_approvals').insert({
+              store_id: profile.store_id,
+              product_id: metadata.productId,
+              type: 'cost_change',
+              new_value: metadata.newCost,
+              requester_name: profile.full_name,
+              requester_phone: from,
+              status: 'pending'
+            });
+            await sendWhatsAppMessage(from, `⏳ *Ajuste de Costo Pendiente*\n\nSe ha enviado la solicitud para cambiar el costo de *${metadata.productName}* a $${metadata.newCost}.`);
+          } else {
+            await supabase.from('products').update({ last_cost_price: metadata.newCost }).eq('id', metadata.productId);
+            await sendWhatsAppMessage(from, `✅ *Costo Actualizado*\n\nEl nuevo costo para *${metadata.productName}* es $${metadata.newCost}.`);
+          }
         } else {
-          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
           await sendWhatsAppMessage(from, "Ajuste cancelado. ❌");
         }
+        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
       }
 
       // ESTADO: Confirmación de Ajuste de Precio de Venta Directo
       else if (step === 'awaiting_price_confirmation') {
         if (isPositive) {
-          await supabase.from('products').update({ base_price: metadata.newPrice }).eq('id', metadata.productId);
-          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-          await sendWhatsAppMessage(from, `✅ *Precio de Venta Actualizado*\n\nEl nuevo precio para *${metadata.productName}* es $${metadata.newPrice}.`);
+          if (profile.role === 'employee') {
+            await supabase.from('inventory_approvals').insert({
+              store_id: profile.store_id,
+              product_id: metadata.productId,
+              type: 'price_change',
+              new_value: metadata.newPrice,
+              requester_name: profile.full_name,
+              requester_phone: from,
+              status: 'pending'
+            });
+            await sendWhatsAppMessage(from, `⏳ *Ajuste de Precio Pendiente*\n\nSe ha enviado la solicitud para cambiar el precio de *${metadata.productName}* a $${metadata.newPrice}.`);
+          } else {
+            await supabase.from('products').update({ base_price: metadata.newPrice }).eq('id', metadata.productId);
+            await sendWhatsAppMessage(from, `✅ *Precio de Venta Actualizado*\n\nEl nuevo precio para *${metadata.productName}* es $${metadata.newPrice}.`);
+          }
         } else {
-          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
           await sendWhatsAppMessage(from, "Ajuste cancelado. ❌");
         }
+        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
       }
 
       // ESTADO: Confirmación de Abono a Deuda (Ledgers)

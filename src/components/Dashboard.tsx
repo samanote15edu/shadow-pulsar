@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { useStoreContext } from '../context/StoreContext';
 import AddProductModal from './AddProductModal';
 import EditProductModal from './EditProductModal';
+import ApprovalInbox from './ApprovalInbox';
 
 interface Product {
   id: string;
@@ -287,9 +288,19 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
           />
         </div>
 
-        <div className="glass-pane rounded-3xl p-6 h-fit max-h-[500px] overflow-y-auto">
-          <h2 className="text-lg font-semibold mb-4 flex items-center justify-between font-black uppercase tracking-tighter italic">
-            <span className="flex items-center gap-2"><span className="text-green-400 animate-pulse">●</span> Actividad Reciente</span>
+        <div className="space-y-6">
+          {userRole === 'owner' && (
+            <div className="glass-pane rounded-3xl p-6">
+              <h2 className="text-lg font-black mb-4 uppercase tracking-tighter italic flex items-center gap-2">
+                <span className="text-sky-400">⚡</span> Bandeja de Aprobación
+              </h2>
+              <ApprovalInbox />
+            </div>
+          )}
+
+          <div className="glass-pane rounded-3xl p-6 h-fit max-h-[500px] overflow-y-auto">
+            <h2 className="text-lg font-semibold mb-4 flex items-center justify-between font-black uppercase tracking-tighter italic">
+              <span className="flex items-center gap-2"><span className="text-green-400 animate-pulse">●</span> Actividad Reciente</span>
             {userRole === 'owner' && (
               <button 
                 onClick={() => navigate('/ledger')}
