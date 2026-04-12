@@ -673,7 +673,7 @@ serve(async (req) => {
     // B. COMANDOS NUEVOS
     if (profile) {
       console.time('executeCommand');
-      const res = await executeCommand(text, supabase, profile.store_id, profile.role, from);
+      const res = await executeCommand(text, supabase, profile.store_id, profile.role, from, profile.id);
       console.timeEnd('executeCommand');
       
       if (res.nextStep) {

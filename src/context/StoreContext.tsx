@@ -63,16 +63,25 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setStores([magicStore]);
             setSelectedStore(magicStore);
             
-            // Fetch owner name for magic link
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('full_name')
-              .eq('store_id', magicStoreId)
-              .maybeSingle();
+            // 3. Fetch specific profile if 'u' is present, otherwise find owner
+            const magicUserId = params.get('u')?.trim() || null;
+            let query = supabase.from('profiles').select('full_name, role');
+            
+            if (magicUserId) {
+              query = query.eq('id', magicUserId);
+            } else {
+              // Legacy/Fallback: Try to find the owner for this store
+              query = query.eq('store_id', magicStoreId).eq('role', 'owner');
+            }
+
+            const { data: profile } = await query.maybeSingle();
             
             if (profile) {
               setUserName(profile.full_name);
-              // Magic link is currently considered admin/owner access
+              setUserRole(profile.role as any);
+            } else if (!magicUserId) {
+              // If no specific user and no owner found, default to owner for backward compatibility
+              // (This might happen for first-time owners without a profile record yet)
               setUserRole('owner');
             }
             

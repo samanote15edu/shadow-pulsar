@@ -39,7 +39,8 @@ export async function executeCommand(
   supabase: SupabaseClient, 
   storeId: string,
   userRole: string,
-  userPhone: string
+  userPhone: string,
+  userId: string
 ): Promise<CommandResponse> {
   const cleanMsg = message.trim();
   const lowerMsg = cleanMsg.toLowerCase();
@@ -385,7 +386,7 @@ export async function executeCommand(
   if (dashboardKeywords.some(k => lowerMsg.includes(k))) {
     if (userRole !== 'owner' && userRole !== 'manager') return { responseText: "❌ Solo los administradores pueden acceder al panel completo." };
     
-    const magicLink = `https://shadow-pulsar.vercel.app/?s=${storeId}`;
+    const magicLink = `https://shadow-pulsar.vercel.app/?s=${storeId}&u=${userId}`;
     return { responseText: `🖥️ *Acceso al Panel de Control*\n\nTu link seguro para entrar al Dashboard:\n${magicLink}\n\n⚠️ Mantén este link en privado.` };
   }
 
