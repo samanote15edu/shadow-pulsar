@@ -98,6 +98,22 @@ async function notifyOwner(storeId: string, message: string) {
   }
 }
 
+async function checkAndNotifyLowStock(storeId: string, productId: string) {
+  try {
+    const { data: prod } = await supabase
+      .from('products')
+      .select('name, current_stock, min_stock_alert')
+      .eq('id', productId)
+      .single();
+
+    if (prod && prod.current_stock <= prod.min_stock_alert) {
+      await notifyOwner(storeId, `⚠️ *ALERTA DE STOCK BAJO*\n\nEl producto *${prod.name}* tiene solo *${prod.current_stock}* unidades restantes. Es momento de resurtir.`);
+    }
+  } catch (err) {
+    console.error('[LOW STOCK NOTIFY ERROR]', err);
+  }
+}
+
 // --- SERVIDOR PRINCIPAL ---
 serve(async (req) => {
   if (req.method === 'GET') {
@@ -302,6 +318,10 @@ serve(async (req) => {
                 { id: 'full', title: 'PAGO COMPLETO ✅' },
                 { id: 'partial', title: 'PAGO PARCIAL/FIADO 📝' }
             ]);
+
+            // Alerta de Stock Bajo al Dueño
+            await checkAndNotifyLowStock(profile.store_id, metadata.productId);
+            
             return new Response('OK', { status: 200 });
           }
         } else if (isNegative) {
@@ -335,6 +355,12 @@ serve(async (req) => {
             { id: 'full', title: 'PAGO COMPLETO ✅' },
             { id: 'partial', title: 'PAGO PARCIAL/FIADO 📝' }
           ]);
+
+          // Alerta de Stock Bajo al Dueño (Para cada item del ticket)
+          for (const item of metadata.items) {
+            await checkAndNotifyLowStock(profile.store_id, item.productId);
+          }
+
           return new Response('OK', { status: 200 });
         } else if (isNegative) {
           await sendWhatsAppMessage(from, "Ticket cancelado. ❌");

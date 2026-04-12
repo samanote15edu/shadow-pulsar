@@ -53,6 +53,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [recentActivity, setRecentActivity] = useState<Transaction[]>([]);
   const [stats, setStats] = useState({ sales: 0, lowStock: 0, fiado: 0, shrinkage: 0 });
+  const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
@@ -74,7 +75,9 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
     const { data: prods } = await supabase.from('products').select('*').eq('store_id', selectedStore?.id).order('name');
     if (prods && prods.length > 0) {
       setProducts(prods.map(p => ({ ...p, unit_of_measure: p.unit_of_measure || 'pza' })));
-      setStats(prev => ({ ...prev, lowStock: prods.filter(p => p.current_stock <= p.min_stock_alert).length }));
+      const low = prods.filter(p => p.current_stock <= p.min_stock_alert);
+      setStats(prev => ({ ...prev, lowStock: low.length }));
+      setLowStockProducts(low);
     }
     const { data: activities } = await supabase.from('transactions').select('*, products(name), fiado_ledgers(customer_name)').eq('store_id', selectedStore?.id).order('created_at', { ascending: false }).limit(5);
     if (activities) {
@@ -132,7 +135,8 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
     if (isDemo) {
       setProducts(DUMMY_PRODUCTS);
       setRecentActivity(DUMMY_ACTIVITIES);
-      setStats({ sales: 1250, lowStock: 5, fiado: 840, shrinkage: -150 });
+      setStats({ sales: 1250, lowStock: 1, fiado: 840, shrinkage: -150 });
+      setLowStockProducts([DUMMY_PRODUCTS[1]]); // Pan Blanco is low
       return;
     }
     if (!selectedStore) return;
@@ -277,7 +281,14 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
               onClick={() => navigate('/audit')}
             />
           )}
-          <StatCard title="Stock Bajo" value={`${stats.lowStock} Items`} delta={stats.lowStock > 0 ? "Atención" : "Optimo"} icon="⚠️" color={stats.lowStock > 0 ? "amber" : "emerald"} />
+          <StatCard 
+            title="Stock Bajo" 
+            value={`${stats.lowStock} Items`} 
+            delta={stats.lowStock > 0 ? "Atención" : "Optimo"} 
+            icon="⚠️" 
+            color={stats.lowStock > 0 ? "amber" : "emerald"}
+            description={lowStockProducts.length > 0 ? lowStockProducts.map(p => p.name).join(', ') : undefined}
+          />
           <StatCard 
             title="Fiado Total" 
             value={`$${stats.fiado}`} 
@@ -396,17 +407,26 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   );
 }
 
-const StatCard: React.FC<{ title: string; value: string; delta: string; icon: string; color: string; onClick?: () => void }> = ({ title, value, delta, icon, color, onClick }) => (
+const StatCard: React.FC<{ title: string; value: string; delta: string; icon: string; color: string; onClick?: () => void; description?: string }> = ({ title, value, delta, icon, color, onClick, description }) => (
   <div 
     onClick={onClick}
-    className={`glass-pane rounded-3xl p-6 transition-all group ${onClick ? 'cursor-pointer hover:bg-white/[0.07] hover:border-white/20 hover:scale-[1.02] border border-transparent' : 'cursor-default'}`}
+    className={`glass-pane rounded-3xl p-6 transition-all group ${onClick ? 'cursor-pointer hover:bg-white/[0.07] hover:border-white/20 hover:scale-[1.02] border border-transparent' : 'cursor-default flex flex-col justify-between'}`}
   >
-    <div className="flex justify-between items-start mb-2">
-      <div className={`w-10 h-10 rounded-2xl bg-${color}-500/10 flex items-center justify-center text-xl`}>{icon}</div>
-      <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded-full bg-${color}-500/10 text-${color}-400`}>{delta}</span>
+    <div>
+      <div className="flex justify-between items-start mb-2">
+        <div className={`w-10 h-10 rounded-2xl bg-${color}-500/10 flex items-center justify-center text-xl`}>{icon}</div>
+        <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded-full bg-${color}-500/10 text-${color}-400`}>{delta}</span>
+      </div>
+      <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-4">{title}</h3>
+      <p className="text-3xl font-bold mt-1 text-slate-100">{value}</p>
     </div>
-    <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-4">{title}</h3>
-    <p className="text-3xl font-bold mt-1 text-slate-100">{value}</p>
+    {description && (
+      <div className="mt-4 pt-4 border-t border-white/10">
+        <p className="text-[10px] text-amber-500/70 font-black uppercase tracking-tighter italic truncate" title={description}>
+          {description}
+        </p>
+      </div>
+    )}
   </div>
 );
 
