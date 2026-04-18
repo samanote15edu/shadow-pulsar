@@ -388,7 +388,18 @@ export async function executeCommand(
   if (dashboardKeywords.some(k => lowerMsg.includes(k))) {
     if (userRole !== 'owner' && userRole !== 'manager') return { responseText: "❌ Solo los administradores pueden acceder al panel completo." };
     
-    const magicLink = `https://shadow-pulsar.vercel.app/?s=${storeId}&u=${userId}`;
+    const baseUrl = `https://shadow-pulsar.vercel.app`;
+    const userPart = `u=${userId}`;
+    
+    if (userRole === 'owner') {
+      let msg = `🖥️ *Panel de Control (Dueño)*\n\n`;
+      msg += `🌐 *Vista Global (Todas tus tiendas):*\n${baseUrl}/?${userPart}\n\n`;
+      msg += `📍 *Sucursal Actual:* \n${baseUrl}/?s=${storeId}&${userPart}\n\n`;
+      msg += `⚠️ Mantén estos links en privado.`;
+      return { responseText: msg };
+    }
+    
+    const magicLink = `${baseUrl}/?s=${storeId}&${userPart}`;
     return { responseText: `🖥️ *Acceso al Panel de Control*\n\nTu link seguro para entrar al Dashboard:\n${magicLink}\n\n⚠️ Mantén este link en privado.` };
   }
 
