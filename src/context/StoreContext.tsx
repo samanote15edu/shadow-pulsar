@@ -40,124 +40,121 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     async function fetchStores() {
       try {
         setLoading(true);
-
-        // 1. Check for Magic Link (URL) or LocalStorage
         const params = new URLSearchParams(window.location.search);
-        let magicStoreId: string | null = params.get('s')?.trim() || null;
         
-        const isGlobalMagicLink = params.has('u') && !params.has('s');
+        // --- 1. MAGIC LINK ENTRY (u and/or s parameters) ---
+        const urlStoreId = params.get('s')?.trim() || null;
+        const magicUserId = params.get('u')?.trim() || null;
         
-        // If not in URL and not forcing a global view link, check localStorage
-        if (!magicStoreId && !isGlobalMagicLink) {
-          magicStoreId = localStorage.getItem('last_store_id');
+        // Force Global View if 'u' is present but NO 's' is in the URL
+        const isForceGlobal = params.has('u') && !params.has('s');
+        
+        // Final store ID to try loading (checking cache only if NOT forcing global)
+        let targetStoreId: string | null = urlStoreId;
+        if (!targetStoreId && !isForceGlobal) {
+          targetStoreId = localStorage.getItem('last_store_id');
         }
 
-        if (magicStoreId) {
-          setIsDemo(false); 
-          const { data: magicStore, error: magicError } = await supabase
-            .from('stores')
-            .select('*')
-            .eq('id', magicStoreId)
-            .single();
+        // A. Loading from Profile ID (u=...) - HUB ACCESS
+        if (magicUserId && !targetStoreId) {
+          const { data: profile } = await supabase.from('profiles').select('*').eq('id', magicUserId).maybeSingle();
+          if (profile) {
+            setIsDemo(false);
+            setUserName(profile.full_name);
+            setUserRole(profile.role as any);
 
-          if (!magicError && magicStore) {
-            // Save to localStorage for persistence
-            localStorage.setItem('last_store_id', magicStoreId);
-            
-            setStores([magicStore]);
-            setSelectedStore(magicStore);
-            
-            // 3. Fetch specific profile if 'u' is present, otherwise find owner
-            const magicUserId = params.get('u')?.trim() || null;
-            let query = supabase.from('profiles').select('full_name, role');
-            
-            if (magicUserId) {
-              query = query.eq('id', magicUserId);
-            } else {
-              // Legacy/Fallback: Try to find the owner for this store
-              query = query.eq('store_id', magicStoreId).eq('role', 'owner');
+            if (profile.role === 'owner') {
+              const { data: storesList } = await supabase.from('stores').select('*').eq('owner_id', profile.id);
+              if (storesList && storesList.length > 0) {
+                setStores(storesList);
+                setSelectedStore(null); // Force selection for Hub feel
+              }
+            } else if (profile.store_id) {
+              const { data: empStore } = await supabase.from('stores').select('*').eq('id', profile.store_id).single();
+              if (empStore) {
+                setStores([empStore]);
+                setSelectedStore(empStore);
+              }
             }
+            setLoading(false);
+            return;
+          }
+        }
 
-            const { data: profile } = await query.maybeSingle();
+        // B. Loading a Specific Store (s=...)
+        if (targetStoreId) {
+          const { data: store, error: storeError } = await supabase.from('stores').select('*').eq('id', targetStoreId).single();
+          if (!storeError && store) {
+            setIsDemo(false);
+            setStores([store]);
+            setSelectedStore(store);
+            localStorage.setItem('last_store_id', targetStoreId);
+
+            // Fetch profile for this session
+            let profileQuery = supabase.from('profiles').select('full_name, role');
+            if (magicUserId) {
+              profileQuery = profileQuery.eq('id', magicUserId);
+            } else {
+              profileQuery = profileQuery.eq('store_id', targetStoreId).eq('role', 'owner');
+            }
             
+            const { data: profile } = await profileQuery.maybeSingle();
             if (profile) {
               setUserName(profile.full_name);
               setUserRole(profile.role as any);
             } else if (!magicUserId) {
-              // If no specific user and no owner found, default to owner for backward compatibility
-              // (This might happen for first-time owners without a profile record yet)
               setUserRole('owner');
             }
-            
+
             setLoading(false);
             return;
           } else {
-            // If ID is invalid, clear it
             localStorage.removeItem('last_store_id');
           }
         }
 
-        // 2. Fallback to standard Auth login
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError || !user) {
-          console.warn('Usando modo Demo (Sin sesión ni Magic Link)');
-          setStores([DEMO_STORE]);
-          setSelectedStore(DEMO_STORE);
-          setIsDemo(true);
-          setUserRole('owner'); // Demo is always owner for testing
+        // --- 2. LOGGED IN SESSION ENTRY ---
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setIsDemo(false);
+          const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+          const { data: storesList } = await supabase.from('stores').select('*').eq('owner_id', user.id);
+          
+          if (storesList && storesList.length > 0) {
+            setStores(storesList);
+            setUserRole('owner');
+            
+            const lastId = localStorage.getItem('last_store_id');
+            const saved = storesList.find(s => s.id === lastId);
+            if (storesList.length === 1) setSelectedStore(storesList[0]);
+            else if (saved) setSelectedStore(saved);
+            else setSelectedStore(null);
+            
+            setUserName(profile?.full_name || user.email || 'Dueño');
+          } else if (profile) {
+            setUserRole(profile.role as any);
+            setUserName(profile.full_name);
+            if (profile.store_id) {
+              const { data: store } = await supabase.from('stores').select('*').eq('id', profile.store_id).single();
+              if (store) {
+                setStores([store]);
+                setSelectedStore(store);
+              }
+            }
+          }
           setLoading(false);
           return;
         }
 
-        // Fetch profile to get role and assigned store
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role, full_name, store_id')
-          .eq('id', user.id)
-          .maybeSingle();
-
-        const { data: storesList, error: storesError } = await supabase
-          .from('stores')
-          .select('*')
-          .eq('owner_id', user.id);
-
-        if (!storesError && storesList && storesList.length > 0) {
-          setStores(storesList);
-          
-          // Improved Selection Logic:
-          // 1. If only 1 store, auto-select it
-          // 2. If multiple, check localStorage
-          // 3. Otherwise, return null (triggers Selector)
-          const lastId = localStorage.getItem('last_store_id');
-          const savedStore = storesList.find(s => s.id === lastId);
-          
-          if (storesList.length === 1) {
-            setSelectedStore(storesList[0]);
-          } else if (savedStore) {
-            setSelectedStore(savedStore);
-          }
-          
-          setUserName(profile?.full_name || user.user_metadata?.full_name || null);
-          setUserRole((profile?.role as any) || 'owner'); // Usually owners if they have storesList
-          setIsDemo(false);
-        } else if (profile) {
-          // If they have a profile but no stores, they might be an employee of a specific store
-          // We should fetch that store
-          setUserName(profile.full_name);
-          setUserRole(profile.role as any);
-          
-          if (profile.store_id) {
-            const { data: empStore } = await supabase.from('stores').select('*').eq('id', profile.store_id).single();
-            if (empStore) {
-              setStores([empStore]);
-              setSelectedStore(empStore);
-            }
-          }
-          setIsDemo(false);
-        }
+        // --- 3. FALLBACK TO DEMO ---
+        console.warn('Usando modo Demo (Sin sesión ni Magic Link)');
+        setStores([DEMO_STORE]);
+        setSelectedStore(DEMO_STORE);
+        setIsDemo(true);
+        setUserRole('owner');
+        setLoading(false);
       } catch (err) {
         console.error('Error en StoreContext:', err);
-      } finally {
         setLoading(false);
       }
     }
