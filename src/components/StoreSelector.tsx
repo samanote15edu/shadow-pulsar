@@ -169,7 +169,7 @@ const StoreSelector: React.FC = () => {
 
         <div className="mt-12 pt-8 border-t border-white/5 flex justify-center">
             <p className="text-[10px] text-slate-700 font-black uppercase tracking-[0.3em] italic">
-              Don Chingón <span className="mx-2 opacity-30">•</span> Retail Engine v4.0
+              Shadow Pulsar <span className="mx-2 opacity-30">•</span> Retail Engine v4.0
             </p>
         </div>
       </div>
