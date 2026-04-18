@@ -423,8 +423,59 @@ export async function executeCommand(
   const scanKeywords = ['escanear', 'lector', 'cámara', 'camara', 'código', 'codigo'];
   if (scanKeywords.includes(lowerMsg)) {
     const { data: tokenObj } = await supabase.from('report_tokens').insert({ store_id: storeId, access_level: 'admin' }).select().single();
-    const scanLink = `https://yrjjajjmhirwkgldulzl.supabase.co/scan/${tokenObj.token}`;
+    const scanLink = `https://yrjjajjmhirwkgldulzl.supabase.co/scan/${tokenObj?.token}`;
     return { responseText: `📱 *Escáner Activado*\n\nPULSA EL LINK PARA ABRIR LA CÁMARA:\n${scanLink}` };
+  }
+  
+  // 14. MULTI-STORE MANAGEMENT (OWNER ONLY)
+  if (userRole === 'owner') {
+    // A. Create New Store
+    const createStoreMatch = cleanMsg.match(/^Nueva tienda[:\s]\s*(.+)$/i);
+    if (createStoreMatch) {
+      const newStoreName = createStoreMatch[1].trim();
+      const { data: newStore, error } = await supabase.from('stores').insert({
+        name: newStoreName,
+        owner_id: userId,
+        logo_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(newStoreName)}`,
+        description: 'Nueva sucursal'
+      }).select().single();
+
+      if (error) return { responseText: `❌ Error al crear la tienda: ${error.message}` };
+
+      // Switch context immediately
+      await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', userId);
+
+      return { responseText: `✨ *¡Nueva Tienda Creada!* ✨\n\nNombre: *${newStore.name}*\n\nAhora estás gestionando esta sucursal. Puedes añadir productos usando 'Surtido'.` };
+    }
+
+    // B. List Stores
+    if (lowerMsg === 'tiendas' || lowerMsg === 'mis tiendas') {
+      const { data: stores } = await supabase.from('stores').select('*').eq('owner_id', userId).order('name');
+      if (!stores || stores.length === 0) return { responseText: "🏢 No tienes tiendas registradas aún." };
+
+      let list = "🏢 *TUS TIENDAS*\n\n";
+      stores.forEach((s, i) => {
+        const isActive = s.id === storeId;
+        list += `${i + 1}. ${isActive ? '✅ ' : '⚪ '} *${s.name}*\n`;
+      });
+      list += "\nEscribe *'Usar [Nombre]'* para cambiar de sucursal.";
+      return { responseText: list };
+    }
+
+    // C. Switch Active Store
+    const switchMatch = cleanMsg.match(/^Usar\s+(.+)$/i);
+    if (switchMatch) {
+      const targetName = switchMatch[1].trim();
+      const { data: stores } = await supabase.from('stores').select('*').eq('owner_id', userId);
+      
+      const target = stores?.find(s => s.name.toLowerCase().includes(targetName.toLowerCase()));
+      if (!target) return { responseText: `❌ No encontré ninguna tienda que se llame "${targetName}".` };
+
+      const { error } = await supabase.from('profiles').update({ store_id: target.id }).eq('id', userId);
+      if (error) return { responseText: `❌ Error al cambiar de tienda: ${error.message}` };
+
+      return { responseText: `📍 *Cambio de Sucursal*\n\nAhora estás gestionando: *${target.name}*` };
+    }
   }
 
   return { responseText: "🤔 No entendí. Prueba con: 'Inventario', '2 cocas' o 'Escanear'." };
