@@ -429,10 +429,27 @@ export async function executeCommand(
   
   // 14. MULTI-STORE MANAGEMENT (OWNER ONLY)
   if (userRole === 'owner') {
-    // A. Create New Store
-    const createStoreMatch = cleanMsg.match(/^Nueva tienda[:\s]\s*(.+)$/i);
-    if (createStoreMatch) {
-      const newStoreName = createStoreMatch[1].trim();
+    // A. Create New Store (Robust & Flexible)
+    const creationKeywords = ['nueva tienda', 'nueva sucursal', 'crear tienda', 'crear sucursal', 'agregar tienda', 'agregar sucursal'];
+    const startsWithKeyword = creationKeywords.some(k => lowerMsg.startsWith(k));
+    
+    if (startsWithKeyword) {
+      // Extract name (handle both "Nueva tienda: Nombre" and "Nueva tienda Nombre")
+      let newStoreName = '';
+      for (const k of creationKeywords) {
+          if (lowerMsg.startsWith(k)) {
+              newStoreName = cleanMsg.slice(k.length).replace(/^[:\s]+/, '').trim();
+              break;
+          }
+      }
+
+      if (!newStoreName) {
+        return { 
+          nextStep: 'awaiting_new_store_name_creation', 
+          responseText: '🏢 *Crear Nueva Sucursal*\n\n¿Cómo se llamará la nueva tienda? (Escribe el nombre)' 
+        };
+      }
+
       const { data: newStore, error } = await supabase.from('stores').insert({
         name: newStoreName,
         owner_id: userId,

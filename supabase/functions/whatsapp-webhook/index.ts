@@ -192,16 +192,40 @@ serve(async (req) => {
         return new Response('OK', { status: 200 });
       }
 
-      // ESTADO: Registro de Tienda
+      // ESTADO: Registro de Tienda (Onboarding Inicial)
       if (step === 'awaiting_store_name') {
         await supabase.from('registration_states').update({ step: 'awaiting_owner_name', metadata: { store_name: text } }).eq('whatsapp_number', from);
         await sendWhatsAppMessage(from, `Entendido. Último paso:\n\n¿Cuál es tu nombre completo? (Dueño)`);
       } 
       else if (step === 'awaiting_owner_name') {
-        const { data: newStore } = await supabase.from('stores').insert({ name: metadata.store_name }).select().single();
+        const { data: newStore } = await supabase.from('stores').insert({ name: metadata.store_name, owner_id: profile?.id }).select().single();
         await supabase.from('profiles').insert({ whatsapp_number: from, full_name: text, role: 'owner', store_id: newStore.id });
         await supabase.from('registration_states').delete().eq('whatsapp_number', from);
         await sendWhatsAppMessage(from, `¡Felicidades *${text}*! 🚀 Tu tienda *${metadata.store_name}* ya está registrada.`);
+      }
+      
+      // ESTADO: Creación de Tienda Adicional (DUEÑO)
+      else if (step === 'awaiting_new_store_name_creation') {
+        const newStoreName = text.trim();
+        const { data: newStore, error } = await supabase.from('stores').insert({
+          name: newStoreName,
+          owner_id: profile.id,
+          logo_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(newStoreName)}`,
+          description: 'Nueva sucursal'
+        }).select().single();
+
+        if (error) {
+          await sendWhatsAppMessage(from, `❌ Error al crear la tienda: ${error.message}`);
+        } else {
+          // Switch context immediately
+          await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', profile.id);
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          
+          let msg = `✨ *¡Nueva Tienda Creada!* ✨\n\n`;
+          msg += `Nombre: *${newStore.name}*\n\n`;
+          msg += `Ahora estás gestionando esta sucursal. Cualquier venta o inventario que registres se guardará aquí.`;
+          await sendWhatsAppMessage(from, msg);
+        }
       }
       
       // ESTADO: Cantidad de Surtido desde Advertencia
