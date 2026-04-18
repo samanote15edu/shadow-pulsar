@@ -45,8 +45,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const params = new URLSearchParams(window.location.search);
         let magicStoreId: string | null = params.get('s')?.trim() || null;
         
-        // If not in URL, check localStorage
-        if (!magicStoreId) {
+        const isGlobalMagicLink = params.has('u') && !params.has('s');
+        
+        // If not in URL and not forcing a global view link, check localStorage
+        if (!magicStoreId && !isGlobalMagicLink) {
           magicStoreId = localStorage.getItem('last_store_id');
         }
 
