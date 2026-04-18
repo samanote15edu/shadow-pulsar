@@ -72,7 +72,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
 
   const fetchDashboardData = async () => {
     if (isDemo || !selectedStore) return;
-    const { data: prods } = await supabase.from('products').select('*').eq('store_id', selectedStore?.id).order('name');
+    const { data: prods } = await supabase.from('products').select('*').eq('store_id', selectedStore?.id).eq('is_active', true).order('name');
     if (prods && prods.length > 0) {
       setProducts(prods.map(p => ({ ...p, unit_of_measure: p.unit_of_measure || 'pza' })));
       const low = prods.filter(p => p.current_stock <= p.min_stock_alert);
@@ -216,19 +216,23 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
     if (!confirmed) return;
 
     try {
-      const { error } = await supabase
+      // 1. Soft delete product
+      const { error: deleteError } = await supabase
         .from('products')
-        .delete()
+        .update({ is_active: false })
         .eq('id', product.id);
 
-      if (error) {
-        if (error.code === '23503') {
-          alert('No se puede eliminar un producto que ya tiene historial de ventas o movimientos. Intenta editarlo en su lugar.');
-        } else {
-          throw error;
-        }
-        return;
-      }
+      if (deleteError) throw deleteError;
+
+      // 2. Record deletion in Ledger for traceability
+      const { error: logError } = await supabase.from('transactions').insert({
+        store_id: selectedStore.id,
+        product_id: product.id,
+        type: 'correction',
+        quantity_change: 0,
+        notes: `PRODUCTO ELIMINADO: ${product.name}`
+      });
+      if (logError) console.error('Error recording deletion in ledger:', logError);
 
       setProducts(prev => prev.filter(p => p.id !== product.id));
       fetchDashboardData();

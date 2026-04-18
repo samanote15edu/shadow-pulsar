@@ -52,6 +52,7 @@ export async function executeCommand(
        .from('products')
        .select('*')
        .eq('store_id', storeId)
+       .eq('is_active', true)
        .order('name', { ascending: true });
 
      if (!prods || prods.length === 0) {
@@ -117,7 +118,7 @@ export async function executeCommand(
     const qty = parseInt(restockMatch[1], 10);
     const productName = restockMatch[2].trim();
 
-    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId);
+    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId).eq('is_active', true);
     const similar = findSimilarProduct(productName, allProds || []);
 
     if (similar) {
@@ -148,7 +149,7 @@ export async function executeCommand(
   const matches = [...cleanMsg.matchAll(bulkRegex)];
 
   if (matches.length > 0) {
-    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId);
+    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId).eq('is_active', true);
     const itemsToConfirm = [];
     let grandTotal = 0;
     let fallbackText = '';
@@ -245,6 +246,7 @@ export async function executeCommand(
       .from('products')
       .select('*')
       .eq('store_id', storeId)
+      .eq('is_active', true)
       .order('name', { ascending: true });
 
     if (!prods || prods.length === 0) {
@@ -265,7 +267,7 @@ export async function executeCommand(
     const productName = costAdjustMatch[1].trim();
     const newCost = parseFloat(costAdjustMatch[2]);
 
-    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId);
+    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId).eq('is_active', true);
     const product = findSimilarProduct(productName, allProds || []);
 
     if (product) {
@@ -285,7 +287,7 @@ export async function executeCommand(
     const productName = priceAdjustMatch[1].trim();
     const newPrice = parseFloat(priceAdjustMatch[2]);
 
-    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId);
+    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId).eq('is_active', true);
     const product = findSimilarProduct(productName, allProds || []);
 
     if (product) {
