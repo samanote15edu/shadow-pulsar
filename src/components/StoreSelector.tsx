@@ -1,9 +1,72 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useStoreContext } from '../context/StoreContext';
-import { Building2, MapPin, ChevronRight, LogOut, Plus } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { Building2, MapPin, ChevronRight, LogOut, Plus, TrendingUp, AlertCircle, ShoppingBag } from 'lucide-react';
+
+interface BusinessStats {
+  totalSales: number;
+  lowStockCount: number;
+  activeStores: number;
+}
 
 const StoreSelector: React.FC = () => {
   const { stores, setSelectedStore, logout, userName } = useStoreContext();
+  const [stats, setStats] = useState<BusinessStats>({ totalSales: 0, lowStockCount: 0, activeStores: 0 });
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  useEffect(() => {
+    async function fetchGlobalStats() {
+      if (!stores.length) return;
+      
+      try {
+        setLoadingStats(true);
+        const storeIds = stores.map(s => s.id);
+        
+        // 1. Fetch Today's Sales
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const { data: sales } = await supabase
+          .from('transactions')
+          .select('total_amount')
+          .in('store_id', storeIds)
+          .eq('type', 'sale')
+          .gte('created_at', today.toISOString());
+
+        const totalSales = sales?.reduce((sum, tx) => sum + (Number(tx.total_amount) || 0), 0) || 0;
+
+        // 2. Fetch Low Stock Count
+        const { count: lowStock } = await supabase
+          .from('products')
+          .select('*', { count: 'exact', head: true })
+          .in('store_id', storeIds)
+          .eq('is_active', true)
+          .filter('current_stock', 'lte', 'min_stock_alert'); // This might need a custom RPC or complex filter if min_stock_alert is a col
+
+        // Fallback for complex filter if needed, but let's try direct for now
+        // If the above doesn't work perfectly due to col-vs-col comparison:
+        const { data: prods } = await supabase
+          .from('products')
+          .select('current_stock, min_stock_alert')
+          .in('store_id', storeIds)
+          .eq('is_active', true);
+        
+        const lowStockCount = prods?.filter(p => p.current_stock <= p.min_stock_alert).length || 0;
+
+        setStats({
+          totalSales,
+          lowStockCount,
+          activeStores: stores.length
+        });
+      } catch (err) {
+        console.error('Error fetching global stats:', err);
+      } finally {
+        setLoadingStats(false);
+      }
+    }
+
+    fetchGlobalStats();
+  }, [stores]);
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 relative overflow-hidden">
@@ -12,22 +75,55 @@ const StoreSelector: React.FC = () => {
       <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none" />
 
       <div className="w-full max-w-4xl z-10">
-        <div className="flex justify-between items-end mb-12">
+        <div className="flex justify-between items-start mb-12">
           <div>
-            <h1 className="text-4xl font-black text-white tracking-tighter italic uppercase mb-2">
-              Tus Tiendas
+            <h1 className="text-5xl font-black text-white tracking-tighter italic uppercase mb-2">
+              Mi Negocio
             </h1>
             <p className="text-slate-500 font-medium lowercase tracking-tight">
-              bienvenido de nuevo, <span className="text-sky-400 font-bold">{userName || 'dueño'}</span>. selecciona una sucursal para gestionar.
+              bienvenido, <span className="text-sky-400 font-bold">{userName || 'dueño'}</span>. vista global de tus sucursales.
             </p>
           </div>
           <button 
             onClick={logout}
-            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-slate-400 hover:text-white transition-all text-xs font-bold uppercase tracking-widest"
+            className="flex items-center gap-2 px-5 py-2.5 bg-white/5 hover:bg-red-500/10 border border-white/10 hover:border-red-500/20 rounded-2xl text-slate-400 hover:text-red-400 transition-all text-xs font-black uppercase tracking-widest"
           >
             <LogOut size={14} />
-            Salir
+            Cerrar Sesión
           </button>
+        </div>
+
+        {/* Global Pulse Summary */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
+          <div className="bg-white/[0.03] border border-white/10 rounded-3xl p-6 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+              <TrendingUp size={48} className="text-sky-400" />
+            </div>
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic mb-1">Ventas Hoy (Global)</p>
+            <h2 className="text-3xl font-black text-white tracking-tighter">
+              {loadingStats ? '...' : `$${stats.totalSales.toLocaleString()}`}
+            </h2>
+          </div>
+
+          <div className="bg-white/[0.03] border border-white/10 rounded-3xl p-6 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+              <AlertCircle size={48} className="text-red-400" />
+            </div>
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic mb-1">Alertas Rojas (Stock)</p>
+            <h2 className={`text-3xl font-black tracking-tighter ${stats.lowStockCount > 0 ? 'text-red-400' : 'text-white'}`}>
+              {loadingStats ? '...' : stats.lowStockCount}
+            </h2>
+          </div>
+
+          <div className="bg-white/[0.03] border border-white/10 rounded-3xl p-6 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+              <ShoppingBag size={48} className="text-indigo-400" />
+            </div>
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic mb-1">Sucursales Activas</p>
+            <h2 className="text-3xl font-black text-white tracking-tighter">
+              {stats.activeStores}
+            </h2>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
