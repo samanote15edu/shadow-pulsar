@@ -5,6 +5,8 @@ interface Store {
   id: string;
   name: string;
   address: string;
+  logo_url?: string;
+  description?: string;
 }
 
 interface StoreContextType {
@@ -119,9 +121,36 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         if (!storesError && storesList && storesList.length > 0) {
           setStores(storesList);
-          setSelectedStore(storesList[0]);
+          
+          // Improved Selection Logic:
+          // 1. If only 1 store, auto-select it
+          // 2. If multiple, check localStorage
+          // 3. Otherwise, return null (triggers Selector)
+          const lastId = localStorage.getItem('last_store_id');
+          const savedStore = storesList.find(s => s.id === lastId);
+          
+          if (storesList.length === 1) {
+            setSelectedStore(storesList[0]);
+          } else if (savedStore) {
+            setSelectedStore(savedStore);
+          }
+          
           setUserName(profile?.full_name || user.user_metadata?.full_name || null);
-          setUserRole((profile?.role as any) || 'employee');
+          setUserRole((profile?.role as any) || 'owner'); // Usually owners if they have storesList
+          setIsDemo(false);
+        } else if (profile) {
+          // If they have a profile but no stores, they might be an employee of a specific store
+          // We should fetch that store
+          setUserName(profile.full_name);
+          setUserRole(profile.role as any);
+          
+          if (profile.store_id) {
+            const { data: empStore } = await supabase.from('stores').select('*').eq('id', profile.store_id).single();
+            if (empStore) {
+              setStores([empStore]);
+              setSelectedStore(empStore);
+            }
+          }
           setIsDemo(false);
         }
       } catch (err) {
@@ -135,12 +164,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const logout = async () => {
+    localStorage.removeItem('last_store_id');
     await supabase.auth.signOut();
     window.location.reload();
   };
 
+  const handleSetSelectedStore = (store: Store) => {
+    setSelectedStore(store);
+    localStorage.setItem('last_store_id', store.id);
+  };
+
   return (
-    <StoreContext.Provider value={{ selectedStore, stores, setSelectedStore, loading, isDemo, userName, userRole, logout }}>
+    <StoreContext.Provider value={{ 
+      selectedStore, 
+      stores, 
+      setSelectedStore: handleSetSelectedStore, 
+      loading, 
+      isDemo, 
+      userName, 
+      userRole, 
+      logout 
+    }}>
       {children}
     </StoreContext.Provider>
   );

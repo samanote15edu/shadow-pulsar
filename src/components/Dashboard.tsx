@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 // Build trigger: Confirming partial voiding logic deployment
+import StoreSelector from './components/StoreSelector';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useStoreContext } from '../context/StoreContext';
@@ -249,14 +250,19 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
     </div>
   );
 
-  if (!selectedStore && !loading) return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
-      <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center text-4xl mb-6">🚫</div>
-      <h2 className="text-xl font-bold mb-2">Tienda no encontrada</h2>
-      <p className="text-slate-400 text-sm mb-8">No pudimos cargar la información de tu tienda. Es posible que el enlace haya expirado o sea incorrecto.</p>
-      <button onClick={() => window.location.reload()} className="bg-sky-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-sky-500/20">Reintentar</button>
-    </div>
-  );
+  if (!selectedStore && !loading) {
+    if (isDemo) return <StoreSelector />; // Demo can also see selector for testing
+    if (stores.length > 0) return <StoreSelector />;
+    
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center text-4xl mb-6">🚫</div>
+        <h2 className="text-xl font-bold mb-2 uppercase tracking-tighter italic">Sin Acceso</h2>
+        <p className="text-slate-400 text-sm mb-8 max-w-xs">No tienes tiendas asignadas o tu sesión ha expirado.</p>
+        <button onClick={logout} className="bg-sky-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-sky-500/20 uppercase tracking-widest text-xs">Regresar al Inicio</button>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
@@ -280,9 +286,12 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
         </div>
         <div className="flex items-center gap-3">
           {stores.length > 1 && (
-            <select className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/50" value={selectedStore?.id} onChange={(e) => setSelectedStore(stores.find(s => s.id === e.target.value)!)}>
-              {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+            <button 
+              onClick={() => (setSelectedStore as any)(null)}
+              className="px-4 py-2 bg-white/5 hover:bg-sky-500/10 border border-white/10 hover:border-sky-500/50 rounded-xl text-slate-400 hover:text-sky-400 transition-all text-xs font-black uppercase tracking-widest italic"
+            >
+              Cambiar Tienda
+            </button>
           )}
           <button 
             onClick={() => !isDemo && logout()} 
