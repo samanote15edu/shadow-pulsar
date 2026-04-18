@@ -107,10 +107,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return;
         }
 
-        // Fetch profile to get role
+        // Fetch profile to get role and assigned store
         const { data: profile } = await supabase
           .from('profiles')
-          .select('role, full_name')
+          .select('role, full_name, store_id')
           .eq('id', user.id)
           .maybeSingle();
 
