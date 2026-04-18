@@ -36,15 +36,6 @@ const StoreSelector: React.FC = () => {
         const totalSales = sales?.reduce((sum, tx) => sum + (Number(tx.total_amount) || 0), 0) || 0;
 
         // 2. Fetch Low Stock Count
-        const { count: lowStock } = await supabase
-          .from('products')
-          .select('*', { count: 'exact', head: true })
-          .in('store_id', storeIds)
-          .eq('is_active', true)
-          .filter('current_stock', 'lte', 'min_stock_alert'); // This might need a custom RPC or complex filter if min_stock_alert is a col
-
-        // Fallback for complex filter if needed, but let's try direct for now
-        // If the above doesn't work perfectly due to col-vs-col comparison:
         const { data: prods } = await supabase
           .from('products')
           .select('current_stock, min_stock_alert')
