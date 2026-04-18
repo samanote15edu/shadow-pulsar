@@ -1,17 +1,39 @@
 import { createClient } from '@supabase/supabase-js';
-import dotenv from 'dotenv';
-dotenv.config();
 
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.VITE_SUPABASE_ANON_KEY // Using service role if possible for migrations, but anonym/service is needed
-);
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-async function run() {
-  console.log('Aplicando migración de invitaciones...');
-  // Since we cannot run raw SQL via the client easily without a RPC or edge function
-  // We will check if the user wants to run it in the Supabase Dashboard
-  console.log('IMPORTANTE: Favor de ejecutar el contenido de fix_db_invites.sql en el Editor SQL de Supabase.');
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Missing environment variables.');
+  process.exit(1);
 }
 
-run();
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+const sql = `
+ALTER TABLE transactions 
+DROP CONSTRAINT IF EXISTS transactions_product_id_fkey;
+
+ALTER TABLE transactions 
+ADD CONSTRAINT transactions_product_id_fkey 
+FOREIGN KEY (product_id) 
+REFERENCES products(id) 
+ON DELETE CASCADE;
+
+ALTER TABLE inventory_approvals 
+DROP CONSTRAINT IF EXISTS inventory_approvals_product_id_fkey;
+
+ALTER TABLE inventory_approvals 
+ADD CONSTRAINT inventory_approvals_product_id_fkey 
+FOREIGN KEY (product_id) 
+REFERENCES products(id) 
+ON DELETE CASCADE;
+`;
+
+// Supabase doesn't have a direct SQL API in the JS client, 
+// but we can try to use a RPC or just inform the user.
+// Since I can't run arbitrary SQL via the client without a custom function,
+// I will try to use the CLI once more with a different syntax.
+
+console.log('SQL to apply:');
+console.log(sql);

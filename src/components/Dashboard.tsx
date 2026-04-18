@@ -210,6 +210,34 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
     }
   };
 
+  const handleDeleteProduct = async (product: Product) => {
+    if (!selectedStore) return;
+    const confirmed = window.confirm(`¿Estas seguro(a) que quieres eliminar este producto?`);
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', product.id);
+
+      if (error) {
+        if (error.code === '23503') {
+          alert('No se puede eliminar un producto que ya tiene historial de ventas o movimientos. Intenta editarlo en su lugar.');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      setProducts(prev => prev.filter(p => p.id !== product.id));
+      fetchDashboardData();
+    } catch (err) {
+      console.error('Error deleting product:', err);
+      alert('Hubo un error al intentar eliminar el producto.');
+    }
+  };
+
   if (loading) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 gap-4">
       <div className="w-12 h-12 border-4 border-sky-500/20 border-t-sky-500 rounded-full animate-spin"></div>
@@ -363,6 +391,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
                       key={p.id} 
                       product={p} 
                       onEdit={() => handleEditClick(p)} 
+                      onDelete={() => handleDeleteProduct(p)}
                       userRole={userRole}
                     />
                   )) : <tr><td colSpan={userRole === 'owner' ? 6 : 5} className="p-8 text-center text-slate-500">No hay productos registrados.</td></tr>}
@@ -375,6 +404,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
                     key={p.id} 
                     product={p} 
                     onEdit={() => handleEditClick(p)} 
+                    onDelete={() => handleDeleteProduct(p)}
                     userRole={userRole}
                   />
                 )) : <div className="p-8 text-center text-slate-500">No hay productos registrados.</div>}
@@ -471,7 +501,7 @@ const ActivityItem: React.FC<{ transaction: Transaction, onVoid: () => void, sho
   );
 };
 
-const ProductRow: React.FC<{ product: Product, onEdit: () => void, userRole: string | null }> = ({ product, onEdit, userRole }) => {
+const ProductRow: React.FC<{ product: Product, onEdit: () => void, onDelete: () => void, userRole: string | null }> = ({ product, onEdit, onDelete, userRole }) => {
   const isLow = product.current_stock <= product.min_stock_alert;
   const color = isLow ? 'amber' : 'emerald';
   const status = isLow ? 'Bajo' : 'Suficiente';
@@ -494,20 +524,31 @@ const ProductRow: React.FC<{ product: Product, onEdit: () => void, userRole: str
         </span>
       </td>
       <td className="p-4 text-right pr-6">
-        {userRole === 'owner' && (
-          <button 
-            onClick={onEdit}
-            className="text-slate-600 hover:text-white transition-colors text-xs font-black italic uppercase tracking-tighter"
-          >
-            Editar
-          </button>
-        )}
+        <div className="flex justify-end gap-3 items-center">
+          {userRole === 'owner' && (
+            <>
+              <button 
+                onClick={onEdit}
+                className="text-slate-600 hover:text-white transition-colors text-xs font-black italic uppercase tracking-tighter"
+              >
+                Editar
+              </button>
+              <button 
+                onClick={onDelete}
+                className="text-red-900/40 hover:text-red-500 transition-colors text-xs font-black italic uppercase tracking-tighter"
+                title="Eliminar producto"
+              >
+                Eliminar
+              </button>
+            </>
+          )}
+        </div>
       </td>
     </tr>
   );
 };
 
-const ProductCard: React.FC<{ product: Product, onEdit: () => void, userRole: string | null }> = ({ product, onEdit, userRole }) => {
+const ProductCard: React.FC<{ product: Product, onEdit: () => void, onDelete: () => void, userRole: string | null }> = ({ product, onEdit, onDelete, userRole }) => {
   const isLow = product.current_stock <= product.min_stock_alert;
   const color = isLow ? 'amber' : 'emerald';
   const status = isLow ? 'Bajo' : 'Suficiente';
@@ -549,8 +590,22 @@ const ProductCard: React.FC<{ product: Product, onEdit: () => void, userRole: st
         )}
       </div>
       {userRole === 'owner' && (
-        <div className="mt-3 text-right">
-          <span className="text-[9px] text-slate-600 font-black uppercase tracking-tighter italic">Toca para editar</span>
+        <div className="mt-4 flex justify-between items-center pt-3 border-t border-white/[0.03]">
+          <span className="text-[9px] text-slate-700 font-black uppercase tracking-tighter italic">ID: {product.id.slice(0,8)}</span>
+          <div className="flex gap-4">
+            <button 
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              className="text-[10px] text-sky-400 font-black uppercase tracking-widest"
+            >
+              Editar
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="text-[10px] text-red-500/50 hover:text-red-500 font-black uppercase tracking-widest"
+            >
+              Eliminar
+            </button>
+          </div>
         </div>
       )}
     </div>
