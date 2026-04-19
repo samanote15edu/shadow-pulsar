@@ -46,7 +46,26 @@ export async function executeCommand(
   const lowerMsg = cleanMsg.toLowerCase();
   const isAdmin = userRole === 'owner' || userRole === 'manager';
 
-  // 1. Check for basic queries (Inventario / Reporte / Ayuda)
+  // 1. Ayuda / Menu
+  if (lowerMsg === 'ayuda' || lowerMsg === 'menu' || lowerMsg === 'comandos') {
+     let help = "❓ *¿CÓMO PUEDO AYUDARTE?*\n\n";
+     help += "• *Ventas:* Escribe '2 cocas' o '1 sabritas y 1 gansito'\n";
+     help += "• *Inventario:* Escribe 'Inventario'\n";
+     help += "• *Surtido:* Escribe 'Surtido: 10 Sabritas'\n";
+     help += "• *Fiado:* Escribe 'Fiado [Nombre]: [Items]'\n";
+     help += "• *Panel Web:* Escribe 'Link'\n";
+     help += "• *Abono:* Escribe 'Abono [Nombre] [Monto]'\n\n";
+     help += "Escribe *'Salir'* o *'Cancelar'* en cualquier momento para detener una operación.";
+     return { responseText: help };
+  }
+
+  // 1.1 Salir / Cancelar (Global fallback)
+  const exitKeywords = ['salir', 'cancelar', 'exit', 'cancel', 'parar', 'reset'];
+  if (exitKeywords.includes(lowerMsg)) {
+    return { responseText: "✅ No hay ninguna operación activa para cancelar. ¿En qué más puedo ayudarte?" };
+  }
+
+  // 2. Check for basic queries (Inventario / Reporte / Ayuda)
   if (lowerMsg === 'inventario' || lowerMsg === 'stock' || lowerMsg === 'todo') {
      const { data: prods } = await supabase
        .from('products')
