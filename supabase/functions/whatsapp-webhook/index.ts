@@ -209,9 +209,51 @@ serve(async (req) => {
     console.log(`[BOT] Contexto: Profile=${!!profile}, StoreType=${store?.business_type || 'none'}, State=${state?.step || 'none'}`);
     await logDebug(from, 'context_check', { hasProfile: !!profile, business_type: store?.business_type, state: state?.step || 'none' });
 
-    // --- 3. LOGICA PRINCIPAL ---
+    // --- 3. LÓGICA DE ACTIVACIÓN Y COMANDOS GLOBALES ---
+    const isMagicCode = normalized === 'tiendita2026' || normalized === 'servicios2026';
+    const isSwitchCommand = normalized === 'cambiar' || normalized === 'switch' || normalized.includes('cambiar tienda');
 
-    // A. FLUJO DE CONVERSACIÓN ACTIVA (ESTADOS)
+    if (isMagicCode) {
+      const bType = normalized === 'tiendita2026' ? 'inventory' : 'activity_logs';
+      await supabase.from('registration_states').upsert({
+        whatsapp_number: from,
+        step: 'awaiting_company_name',
+        metadata: { business_type: bType }
+      });
+      await sendWhatsAppMessage(from, `¡Código aceptado! 🚀\n\n¿Cuál es el nombre de tu empresa?`);
+      return new Response('OK', { status: 200 });
+    }
+
+    if (isSwitchCommand && profile) {
+      const { data: userStores } = await supabase.from('stores').select('id, name, business_type').eq('owner_id', profile.id);
+      
+      if (userStores && userStores.length > 1) {
+        const buttons = userStores.slice(0, 3).map(s => ({
+          id: `switch_to_${s.id}`,
+          title: s.name.substring(0, 20)
+        }));
+        await sendWhatsAppButtons(from, "🏢 *Tus Negocios*\n\nSelecciona la tienda que quieres gestionar ahora:", buttons);
+      } else {
+        await sendWhatsAppMessage(from, "Solo tienes una tienda registrada o no eres el dueño. Para registrar otra usa un código de activación.");
+      }
+      return new Response('OK', { status: 200 });
+    }
+
+    // Handle Switch Button Reply
+    if (buttonId.startsWith('switch_to_')) {
+      const targetId = buttonId.replace('switch_to_', '');
+      await supabase.from('profiles').update({ store_id: targetId }).eq('id', profile.id);
+      const { data: targetStore } = await supabase.from('stores').select('name, business_type').eq('id', targetId).single();
+      
+      const welcomeMsg = targetStore?.business_type === 'activity_logs' 
+        ? `✅ Ahora estás gestionando *${targetStore.name}* (Modo Bitácora).\n\nEscribe la descripción de la actividad para empezar.`
+        : `✅ Ahora estás gestionando *${targetStore.name}* (Modo Inventario).\n\n¿En qué puedo ayudarte?`;
+        
+      await sendWhatsAppMessage(from, welcomeMsg);
+      return new Response('OK', { status: 200 });
+    }
+
+    // --- 4. LOGICA DE ESTADOS ---
     if (state) {
       const { step, metadata } = state;
 
@@ -225,17 +267,64 @@ serve(async (req) => {
         return new Response('OK', { status: 200 });
       }
 
-      // ESTADO: Registro de Tienda (Onboarding Inicial)
-      if (step === 'awaiting_store_name') {
-        await supabase.from('registration_states').update({ step: 'awaiting_owner_name', metadata: { store_name: text } }).eq('whatsapp_number', from);
-        await sendWhatsAppMessage(from, `Entendido. Último paso:\n\n¿Cuál es tu nombre completo? (Dueño)`);
-      } 
-      else if (step === 'awaiting_owner_name') {
-        const { data: newStore } = await supabase.from('stores').insert({ name: metadata.store_name, owner_id: profile?.id }).select().single();
-        await supabase.from('profiles').insert({ whatsapp_number: from, full_name: text, role: 'owner', store_id: newStore.id });
-        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-        await sendWhatsAppMessage(from, `¡Felicidades *${text}*! 🚀 Tu tienda *${metadata.store_name}* ya está registrada.`);
+      // ESTADO: Captura de Nombre de Empresa (Nuevo flujo de Códigos)
+      if (step === 'awaiting_company_name') {
+        const storeName = text.trim();
+        await supabase.from('registration_states').update({ 
+          step: profile ? 'finishing_magic_registration' : 'awaiting_owner_name_for_new_store', 
+          metadata: { ...metadata, store_name: storeName } 
+        }).eq('whatsapp_number', from);
+
+        if (profile) {
+          // Si ya existe, creamos la tienda y lo vinculamos
+          const { data: newStore } = await supabase.from('stores').insert({ 
+            name: storeName, 
+            owner_id: profile.id,
+            business_type: metadata.business_type 
+          }).select().single();
+          
+          if (newStore) {
+            await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', profile.id);
+            await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+            const mode = metadata.business_type === 'activity_logs' ? 'Bitácora' : 'Inventario';
+            await sendWhatsAppMessage(from, `✅ ¡Todo listo! Tu nueva empresa *${storeName}* ha sido registrada en modo *${mode}*.\n\nAhora estás gestionando este nuevo negocio.`);
+          }
+        } else {
+          await sendWhatsAppMessage(from, `Entendido. Último paso:\n\n¿Cuál es tu nombre completo?`);
+        }
+        return new Response('OK', { status: 200 });
       }
+
+      // ESTADO: Captura de Nombre de Dueño (Para usuarios nuevos vía Código)
+      else if (step === 'awaiting_owner_name_for_new_store') {
+        const ownerName = text.trim();
+        // 1. Crear Perfil primero (para obtener el ID de dueño si no existe en auth)
+        // Nota: En este sistema simplificado, el profile.id es el que vincula
+        const { data: newProfile } = await supabase.from('profiles').insert({ 
+          whatsapp_number: from, 
+          full_name: ownerName, 
+          role: 'owner' 
+        }).select().single();
+
+        if (newProfile) {
+          const { data: newStore } = await supabase.from('stores').insert({ 
+            name: metadata.store_name, 
+            owner_id: newProfile.id,
+            business_type: metadata.business_type
+          }).select().single();
+
+          if (newStore) {
+            await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', newProfile.id);
+            await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+            const mode = metadata.business_type === 'activity_logs' ? 'Bitácora' : 'Inventario';
+            await sendWhatsAppMessage(from, `¡Bienvenido *${ownerName}*! 🚀\n\nTu empresa *${metadata.store_name}* ha sido creada con éxito en modo *${mode}*.`);
+          }
+        }
+        return new Response('OK', { status: 200 });
+      }
+
+      // ESTADO: Registro de Tienda (Legacy - Mantener por compatibilidad)
+      else if (step === 'awaiting_store_name') {
       
       // --- NUEVOS FLUJOS CONVERSACIONALES (REDUCCIÓN DE FRICCIÓN) ---
 
