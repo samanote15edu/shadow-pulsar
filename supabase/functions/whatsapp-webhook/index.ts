@@ -204,6 +204,79 @@ serve(async (req) => {
         await sendWhatsAppMessage(from, `¡Felicidades *${text}*! 🚀 Tu tienda *${metadata.store_name}* ya está registrada.`);
       }
       
+      // --- NUEVOS FLUJOS CONVERSACIONALES (REDUCCIÓN DE FRICCIÓN) ---
+
+      // FIADO GUIADO: Captura de Nombre
+      else if (step === 'awaiting_fiado_name_guided') {
+        const customer = text.trim();
+        await supabase.from('registration_states').update({ 
+          step: 'awaiting_fiado_items_guided', 
+          metadata: { customer } 
+        }).eq('whatsapp_number', from);
+        await sendWhatsAppMessage(from, `👤 *Fiado para ${customer}*\n\n¿Qué productos se lleva? (Ej: '2 cocas y 1 gansito')`);
+      }
+
+      // FIADO GUIADO: Captura de Productos (Reutiliza lógica del parser)
+      else if (step === 'awaiting_fiado_items_guided') {
+         // Re-inyectamos el comando completo para que el parser haga su magia
+         const proxyMsg = `Fiado ${metadata.customer}: ${text}`;
+         const res = await executeCommand(proxyMsg, supabase, profile.store_id, profile.role, from, profile.id);
+         
+         if (res.nextStep) {
+           await supabase.from('registration_states').update({ step: res.nextStep, metadata: res.metadata }).eq('whatsapp_number', from);
+           await sendWhatsAppMessage(from, res.responseText);
+         } else {
+           await sendWhatsAppMessage(from, "❌ No entendí la lista de productos. Prueba algo como '2 cocas'.");
+         }
+      }
+
+      // ABONO GUIADO: Captura de Nombre
+      else if (step === 'awaiting_abono_name_guided') {
+        const customerName = text.trim();
+        await supabase.from('registration_states').update({ 
+          step: 'awaiting_abono_amount_guided', 
+          metadata: { customerName } 
+        }).eq('whatsapp_number', from);
+        await sendWhatsAppMessage(from, `💰 *Abono de ${customerName}*\n\n¿Cuánto va a pagar? (Escribe solo el número)`);
+      }
+
+      // ABONO GUIADO: Captura de Monto
+      else if (step === 'awaiting_abono_amount_guided') {
+        const amount = parseFloat(text.replace(/[^0-9.]/g, ''));
+        if (isNaN(amount) || amount <= 0) {
+          await sendWhatsAppMessage(from, "❌ Por favor envía un monto válido.");
+          return new Response('OK', { status: 200 });
+        }
+        await supabase.from('registration_states').update({ 
+          step: 'awaiting_payment_ledgers_confirmation', 
+          metadata: { ...metadata, amount } 
+        }).eq('whatsapp_number', from);
+        await sendWhatsAppButtons(from, `💰 *Confirmar Abono*\n\n¿Registrar pago de *$${amount}* para *${metadata.customerName}*?`, [
+          { id: 'yes', title: 'SÍ ✅' },
+          { id: 'no', title: 'NO ❌' }
+        ]);
+      }
+
+      // VENTA CONTEXTUAL: Captura de Cantidad
+      else if (step === 'awaiting_contextual_product_qty') {
+        const qty = parseInt(text.replace(/[^0-9]/g, ''));
+        if (isNaN(qty) || qty <= 0) {
+          await sendWhatsAppMessage(from, "❌ Envía un número válido para la cantidad.");
+          return new Response('OK', { status: 200 });
+        }
+        
+        const total = qty * metadata.price;
+        await supabase.from('registration_states').update({ 
+          step: 'awaiting_confirmation', 
+          metadata: { ...metadata, qty, total, type: 'sale' } 
+        }).eq('whatsapp_number', from);
+        
+        await sendWhatsAppButtons(from, `📦 *Confirmar Venta*\n\nProducto: ${metadata.productName}\nCantidad: ${qty}\nTOTAL: *$${total}*\n\n¿Es correcto?`, [
+          { id: 'yes', title: 'SÍ ✅' },
+          { id: 'no', title: 'NO ❌' }
+        ]);
+      }
+      
       // ESTADO: Creación de Tienda Adicional (DUEÑO)
       else if (step === 'awaiting_new_store_name_creation') {
         const newStoreName = text.trim();

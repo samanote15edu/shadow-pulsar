@@ -131,6 +131,14 @@ export async function executeCommand(
     };
   }
 
+  // 2.1 PARTIAL FIADO (Guided flow)
+  if (lowerMsg === 'fiado' || lowerMsg === 'deuda' || lowerMsg === 'anotar') {
+    return {
+      responseText: "¿A quién le vamos a fiar? (Escribe el nombre del cliente)",
+      nextStep: 'awaiting_fiado_name_guided'
+    };
+  }
+
   // 3. STOCK RESTOCK PARSER (e.g. "Surtido: 10 Sabritas")
   const restockMatch = cleanMsg.match(/^Surtido[:\s]\s*(\d+)\s+(.+)$/i);
   if (restockMatch) {
@@ -356,6 +364,14 @@ export async function executeCommand(
     };
   }
 
+  // 9.1 PARTIAL ABONO (Guided flow)
+  if (lowerMsg === 'abono' || lowerMsg === 'pago' || lowerMsg === 'cobro' || lowerMsg === 'cobrar') {
+    return {
+      responseText: "¿Quién está realizando el pago?",
+      nextStep: 'awaiting_abono_name_guided'
+    };
+  }
+
   // 9. CORRECTION / RETROACTIVE PAYMENT FIX
   const correctionKeywords = ['corregir', 'arreglar', 'ajustar pago', 'pago parcial'];
   if (correctionKeywords.some(k => lowerMsg.includes(k))) {
@@ -541,6 +557,20 @@ export async function executeCommand(
       if (error) return { responseText: `❌ Error al cambiar de tienda: ${error.message}` };
 
       return { responseText: `📍 *Cambio de Sucursal*\n\nAhora estás gestionando: *${target.name}*` };
+    }
+  }
+
+  // 15. CONTEXTUAL PRODUCT DETECTION (Final fallback)
+  // If it's a single word or short phrase, check if it's a product
+  if (cleanMsg.length >= 3 && cleanMsg.length <= 25) {
+    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId).eq('is_active', true);
+    const potentialProduct = findSimilarProduct(cleanMsg, allProds || []);
+    if (potentialProduct) {
+      return {
+        responseText: `¡Claro! ¿Cuántas unidades de *${potentialProduct.name}* vendiste?`,
+        nextStep: 'awaiting_contextual_product_qty',
+        metadata: { productId: potentialProduct.id, productName: potentialProduct.name, price: potentialProduct.base_price }
+      };
     }
   }
 
