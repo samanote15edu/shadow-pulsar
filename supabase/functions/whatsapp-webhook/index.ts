@@ -203,9 +203,11 @@ serve(async (req) => {
     ]);
 
     const profile = profileRes.data;
+    const store = Array.isArray(profile?.stores) ? profile.stores[0] : profile?.stores;
     const state = stateRes.data;
 
-    // --- 3. LÓGICA DE COMANDOS GLOBALES (MÁXIMA PRIORIDAD) ---
+    console.log(`[BOT] Contexto: Profile=${!!profile}, StoreType=${store?.business_type || 'none'}, State=${state?.step || 'none'}`);
+    await logDebug(from, 'context_check', { hasProfile: !!profile, business_type: store?.business_type, state: state?.step || 'none' });
     const isMagicCode = normalized === 'tiendita2026' || normalized === 'servicios2026';
     const isSwitchCommand = normalized === 'cambiar' || normalized === 'switch' || normalized.includes('cambiar tienda');
 
