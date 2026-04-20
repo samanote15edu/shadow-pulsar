@@ -81,7 +81,13 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       setStats(prev => ({ ...prev, lowStock: low.length }));
       setLowStockProducts(low);
     }
-    const { data: activities } = await supabase.from('transactions').select('*, products(name), fiado_ledgers(customer_name)').eq('store_id', selectedStore?.id).order('created_at', { ascending: false }).limit(5);
+    const { data: activities } = await supabase.from('transactions')
+      .select('*, products(name), fiado_ledgers(customer_name)')
+      .eq('store_id', selectedStore?.id)
+      .eq('is_voided', false)
+      .neq('type', 'void')
+      .order('created_at', { ascending: false })
+      .limit(5);
     if (activities) {
       setRecentActivity(activities.map(a => ({ 
         ...a, 

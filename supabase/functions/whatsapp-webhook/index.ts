@@ -1165,18 +1165,36 @@ serve(async (req) => {
                 row_id: tx.product_id,
                 amount: revertAmount
               });
-              // 2. Marcar como anulada
-              await supabase.from('transactions').update({ is_voided: true }).eq('id', tx.id);
-              // 3. Crear registro de reversa
-              await supabase.from('transactions').insert({
-                store_id: profile.store_id,
-                product_id: tx.product_id,
-                type: 'void',
-                quantity_change: revertAmount,
-                total_amount: tx.total_amount,
-                notes: `ANULACIÓN ${txTypeName.toUpperCase()} DESDE WHATSAPP`
-              });
-              await sendWhatsAppMessage(from, `✅ *${txTypeName.charAt(0).toUpperCase() + txTypeName.slice(1)} Anulado*\n\nEl inventario se ha ajustado correctamente.`);
+
+              // 1.1 Limpieza de Catálogo (Smart Cleanup)
+              // Si el producto es "nuevo" (<15 min) y esta es su única acción, lo borramos.
+              const { data: product } = await supabase.from('products').select('*').eq('id', tx.product_id).single();
+              const { count: txCount } = await supabase.from('transactions')
+                .select('*', { count: 'exact', head: true })
+                .eq('product_id', tx.product_id)
+                .eq('is_voided', false);
+              
+              const isNewProduct = product && (new Date().getTime() - new Date(product.created_at).getTime() < 15 * 60 * 1000);
+              const isFirstAction = txCount === 1;
+
+              if (isNewProduct && isFirstAction) {
+                console.log(`[BOT] Borrando producto efímero: ${product.name}`);
+                await supabase.from('products').delete().eq('id', tx.product_id);
+                await sendWhatsAppMessage(from, `✅ *Acción Deshecha*\n\nEl producto "${product.name}" ha sido eliminado del catálogo porque fue una creación reciente.`);
+              } else {
+                // 2. Marcar como anulada
+                await supabase.from('transactions').update({ is_voided: true }).eq('id', tx.id);
+                // 3. Crear registro de reversa
+                await supabase.from('transactions').insert({
+                  store_id: profile.store_id,
+                  product_id: tx.product_id,
+                  type: 'void',
+                  quantity_change: revertAmount,
+                  total_amount: tx.total_amount,
+                  notes: `ANULACIÓN ${txTypeName.toUpperCase()} DESDE WHATSAPP`
+                });
+                await sendWhatsAppMessage(from, `✅ *${txTypeName.charAt(0).toUpperCase() + txTypeName.slice(1)} Anulado*\n\nEl inventario se ha ajustado correctamente.`);
+              }
             }
           }
         } else {
