@@ -8,7 +8,7 @@ const WHATSAPP_ACCESS_TOKEN = Deno.env.get('WHATSAPP_ACCESS_TOKEN');
 const WHATSAPP_PHONE_ID = Deno.env.get('WHATSAPP_PHONE_ID');
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-import { executeCommand } from './parser.ts';
+import { executeCommand, generateVisualReceipt, type FiadoItem } from './parser.ts';
 
 // --- CONFIGURACIÓN ENVÍO ---
 async function sendWhatsAppMessage(to: string, text: string) {
@@ -228,6 +228,130 @@ serve(async (req) => {
          } else {
            await sendWhatsAppMessage(from, "❌ No entendí la lista de productos. Prueba algo como '2 cocas'.");
          }
+      }
+
+      // FIADO: Captura de Precio para Item Específico
+      else if (step === 'awaiting_item_price') {
+        const price = parseFloat(text.replace(/[^0-9.]/g, ''));
+        if (isNaN(price)) {
+          await sendWhatsAppMessage(from, "❌ Envía solo el número del precio (ej: 15.50)");
+          return new Response('OK', { status: 200 });
+        }
+
+        const items = [...metadata.items];
+        items[metadata.currentIdx].price = price;
+
+        // Buscar el siguiente que falte
+        const nextMissingIdx = items.findIndex((it, idx) => idx > metadata.currentIdx && it.price === null);
+        
+        if (nextMissingIdx !== -1) {
+          await supabase.from('registration_states').update({
+            metadata: { ...metadata, items, currentIdx: nextMissingIdx }
+          }).eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `👤 *Fiado para ${metadata.customer}*\n\n¿A cuánto vendiste *${items[nextMissingIdx].name}*?`);
+        } else {
+          // Ya tenemos todos los precios, generar Ticket
+          const ticket = generateVisualReceipt(metadata.customer, items);
+          await supabase.from('registration_states').update({
+            step: 'awaiting_fiado_approval',
+            metadata: { ...metadata, items }
+          }).eq('whatsapp_number', from);
+          await sendWhatsAppButtons(from, ticket, [
+            { id: 'yes', title: 'SÍ ✅' },
+            { id: 'no', title: 'NO ❌' }
+          ]);
+        }
+      }
+
+      // FIADO: Confirmación Final del Ticket
+      else if (step === 'awaiting_fiado_approval') {
+        if (isPositive) {
+          const { customer, items } = metadata;
+          
+          // 1. Buscar/Crear el Ledger del Cliente
+          let { data: ledger } = await supabase.from('fiado_ledgers').select('*').eq('store_id', profile.store_id).ilike('customer_name', customer).maybeSingle();
+          if (!ledger) {
+            const { data: newL } = await supabase.from('fiado_ledgers').insert({ store_id: profile.store_id, customer_name: customer, current_balance: 0 }).select().single();
+            ledger = newL;
+          }
+
+          let ticketTotal = 0;
+          const transactionIds = [];
+
+          // 2. Procesar cada item
+          const { data: allProds } = await supabase.from('products').select('*').eq('store_id', profile.store_id).eq('is_active', true);
+          
+          for (const it of items) {
+            const prod = allProds?.find(p => p.name.toLowerCase().includes(it.name.toLowerCase()) || it.name.toLowerCase().includes(p.name.toLowerCase()));
+            const lineTotal = (it.qty || 1) * (it.price || 0);
+            ticketTotal += lineTotal;
+
+            if (prod) {
+              await supabase.rpc('increment_stock', { row_id: prod.id, amount: -it.qty });
+              const { data: tx } = await supabase.from('transactions').insert({
+                store_id: profile.store_id,
+                product_id: prod.id,
+                customer_id: ledger.id,
+                type: 'sale',
+                quantity_change: -it.qty,
+                unit_price: it.price,
+                total_amount: lineTotal,
+                amount_received: 0, // Es fiado
+                notes: `Fiado: ${customer}`
+              }).select().single();
+              if (tx) transactionIds.push({ id: tx.id, total: lineTotal, productId: prod.id, productName: prod.name });
+            } else {
+              // Si no existe el producto, solo registramos la transacción contable vinculada al ledger
+              const { data: tx } = await supabase.from('transactions').insert({
+                store_id: profile.store_id,
+                customer_id: ledger.id,
+                type: 'sale',
+                quantity_change: -it.qty,
+                unit_price: it.price,
+                total_amount: lineTotal,
+                amount_received: 0,
+                notes: `Fiado (Item sin inv): ${it.name}`
+              }).select().single();
+              if (tx) transactionIds.push({ id: tx.id, total: lineTotal });
+            }
+          }
+
+          // 3. Actualizar balance del deudor
+          await supabase.from('fiado_ledgers').update({ 
+            current_balance: Number(ledger.current_balance) + ticketTotal,
+            last_update_at: new Date().toISOString()
+          }).eq('id', ledger.id);
+
+          await sendWhatsAppMessage(from, `✅ *Fiado Guardado*\n\nSe han registrado $${ticketTotal.toFixed(2)} a la cuenta de ${customer}.`);
+          
+          // 4. Chequeo de Stock y transición a alerta si es necesario
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from); // Limpiar primero
+          
+          for (const tx of transactionIds) {
+            if (tx.productId) {
+               await checkAndNotifyLowStock(profile.store_id, tx.productId);
+               // Si el stock quedó negativo, ofrecer surtido
+               const { data: p } = await supabase.from('products').select('current_stock').eq('id', tx.productId).single();
+               if (p && p.current_stock < 0) {
+                 await sendWhatsAppMessage(from, `⚠️ *AVISO:* El stock de *${tx.productName}* quedó en ${p.current_stock}.\n\n¿Quieres registrar un surtido ahora? Escribe la cantidad o responde "No".`);
+                 await supabase.from('registration_states').upsert({
+                   whatsapp_number: from,
+                   step: 'awaiting_restock_qty_from_warning',
+                   metadata: { productId: tx.productId, productName: tx.productName }
+                 });
+                 break; // Solo una alerta por ticket para no saturar
+               }
+            }
+          }
+        } else if (isNegative) {
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, "Fiado cancelado. ❌");
+        } else {
+          await sendWhatsAppButtons(from, "¿Confirmas el ticket de fiado?", [
+            { id: 'yes', title: 'SÍ ✅' },
+            { id: 'no', title: 'NO ❌' }
+          ]);
+        }
       }
 
       // ABONO GUIADO: Captura de Nombre
