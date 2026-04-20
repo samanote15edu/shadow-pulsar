@@ -93,3 +93,58 @@ CREATE TABLE registration_states (
 
 -- Insert a default test code
 INSERT INTO invite_codes (code, max_uses) VALUES ('TIENDITA2026', 10) ON CONFLICT DO NOTHING;
+
+-- ==========================================
+-- ACTIVITY REPORTING MODULE (EXTENSION)
+-- ==========================================
+
+-- 1. Expand Stores for business types
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS business_type TEXT DEFAULT 'inventory' CHECK (business_type IN ('inventory', 'activity_logs'));
+
+-- 2. Activity Logs Table
+CREATE TABLE IF NOT EXISTS activity_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id UUID REFERENCES stores(id) ON DELETE CASCADE,
+    performer_id UUID REFERENCES profiles(id),
+    description TEXT NOT NULL,
+    status TEXT DEFAULT 'completed',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 3. Activity Evidences Table (Photos)
+CREATE TABLE IF NOT EXISTS activity_evidences (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    activity_log_id UUID REFERENCES activity_logs(id) ON DELETE CASCADE,
+    image_url TEXT NOT NULL,
+    media_id_whatsapp TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 4. RLS for Activity Reporting
+ALTER TABLE activity_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE activity_evidences ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Dueño ve todos los logs" ON activity_logs;
+DROP POLICY IF EXISTS "Empleado ve logs de su tienda" ON activity_logs;
+DROP POLICY IF EXISTS "Acceso a evidencias" ON activity_evidences;
+
+-- Owner can see everything in their own stores
+CREATE POLICY "Dueño ve todos los logs" ON activity_logs FOR SELECT USING (
+    EXISTS (SELECT 1 FROM stores WHERE id = activity_logs.store_id AND owner_id = auth.uid())
+);
+
+-- Employees can see logs from their own store
+CREATE POLICY "Empleado ve logs de su tienda" ON activity_logs FOR SELECT USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND store_id = activity_logs.store_id)
+);
+
+-- Evidences linked to accessible logs are visible
+CREATE POLICY "Acceso a evidencias" ON activity_evidences FOR SELECT USING (
+    EXISTS (SELECT 1 FROM activity_logs WHERE id = activity_evidences.activity_log_id)
+);
+
+-- Crucial: Ensure profiles are readable for joins (names)
+DROP POLICY IF EXISTS "Ver nombres de la tienda" ON profiles;
+CREATE POLICY "Ver nombres de la tienda" ON profiles FOR SELECT USING (
+    EXISTS (SELECT 1 FROM profiles p2 WHERE p2.id = auth.uid() AND p2.store_id = profiles.store_id)
+);

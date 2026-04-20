@@ -24,22 +24,31 @@ CREATE TABLE IF NOT EXISTS activity_evidences (
 ALTER TABLE activity_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_evidences ENABLE ROW LEVEL SECURITY;
 
--- Políticas básicas (Dueño ve todo, Empleado ve lo suyo)
--- Eliminamos políticas anteriores si existen para evitar errores
+-- Políticas mejoradas
 DROP POLICY IF EXISTS "Dueño ve todos los logs" ON activity_logs;
 DROP POLICY IF EXISTS "Empleado ve sus propios logs" ON activity_logs;
+DROP POLICY IF EXISTS "Empleado ve logs de su tienda" ON activity_logs;
 DROP POLICY IF EXISTS "Cualquiera con acceso al log ve evidencias" ON activity_evidences;
 
+-- 1. Dueño: Ve todo lo de sus tiendas
 CREATE POLICY "Dueño ve todos los logs" ON activity_logs FOR SELECT USING (
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'owner' AND store_id = activity_logs.store_id)
+    EXISTS (SELECT 1 FROM stores WHERE id = activity_logs.store_id AND owner_id = auth.uid())
 );
 
-CREATE POLICY "Empleado ve sus propios logs" ON activity_logs FOR SELECT USING (
-    performer_id = auth.uid()
+-- 2. Empleado: Ve los logs de su tienda (para que la bitácora sea compartida si se desea)
+CREATE POLICY "Empleado ve logs de su tienda" ON activity_logs FOR SELECT USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND store_id = activity_logs.store_id)
 );
 
-CREATE POLICY "Cualquiera con acceso al log ve evidencias" ON activity_evidences FOR SELECT USING (
+-- 3. Evidencias: Si puedes ver el log, puedes ver la evidencia
+CREATE POLICY "Acceso a evidencias" ON activity_evidences FOR SELECT USING (
     EXISTS (SELECT 1 FROM activity_logs WHERE id = activity_evidences.activity_log_id)
+);
+
+-- 4. Perfiles: Permitir ver nombres para los joins (Crucial para el Dashboard)
+-- Nota: Esto permite que cualquier usuario autenticado vea nombres básicos dentro de la misma tienda
+CREATE POLICY "Ver nombres de la tienda" ON profiles FOR SELECT USING (
+    EXISTS (SELECT 1 FROM profiles p2 WHERE p2.id = auth.uid() AND p2.store_id = profiles.store_id)
 );
 
 -- 5. Instrucción para Storage:
