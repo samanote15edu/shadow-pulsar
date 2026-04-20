@@ -127,34 +127,20 @@ ALTER TABLE activity_evidences ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Dueño ve todos los logs" ON activity_logs;
 DROP POLICY IF EXISTS "Empleado ve logs de su tienda" ON activity_logs;
 DROP POLICY IF EXISTS "Acceso a evidencias" ON activity_evidences;
+DROP POLICY IF EXISTS "Lectura pública de logs" ON activity_logs;
+DROP POLICY IF EXISTS "Lectura pública de evidencias" ON activity_evidences;
 
--- Owner can see everything in their own stores (Independent of active profile)
-CREATE POLICY "Dueño ve todos los logs" ON activity_logs FOR SELECT USING (
-    EXISTS (SELECT 1 FROM stores WHERE id = activity_logs.store_id AND owner_id = auth.uid())
-);
-
--- Employees can see logs from their own store
-CREATE POLICY "Empleado ve logs de su tienda" ON activity_logs FOR SELECT USING (
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND store_id = activity_logs.store_id)
-);
-
--- Evidences linked to accessible logs are visible
-CREATE POLICY "Acceso a evidencias" ON activity_evidences FOR SELECT USING (
-    EXISTS (SELECT 1 FROM activity_logs WHERE id = activity_evidences.activity_log_id)
-);
+-- Public read for reporting to support Magic Links
+CREATE POLICY "Lectura pública de logs" ON activity_logs FOR SELECT USING (true);
+CREATE POLICY "Lectura pública de evidencias" ON activity_evidences FOR SELECT USING (true);
 
 -- Crucial: Super-Owner policy for Profile metadata
 DROP POLICY IF EXISTS "Ver nombres de la tienda" ON profiles;
 DROP POLICY IF EXISTS "Dueño ve perfiles de sus tiendas" ON profiles;
 DROP POLICY IF EXISTS "Empleado ve compañeros" ON profiles;
+DROP POLICY IF EXISTS "Lectura pública de perfiles" ON profiles;
 
-CREATE POLICY "Dueño ve perfiles de sus tiendas" ON profiles FOR SELECT USING (
-    EXISTS (SELECT 1 FROM stores WHERE id = profiles.store_id AND owner_id = auth.uid())
-);
-
-CREATE POLICY "Empleado ve compañeros" ON profiles FOR SELECT USING (
-    EXISTS (SELECT 1 FROM profiles p2 WHERE p2.id = auth.uid() AND p2.store_id = profiles.store_id)
-);
+CREATE POLICY "Lectura pública de perfiles" ON profiles FOR SELECT USING (true);
 
 -- Ensure "Don Chingon" is set to activity reporting
 UPDATE stores SET business_type = 'activity_logs' WHERE name ILIKE '%Don Chingon%';

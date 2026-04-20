@@ -30,34 +30,18 @@ DROP POLICY IF EXISTS "Empleado ve sus propios logs" ON activity_logs;
 DROP POLICY IF EXISTS "Empleado ve logs de su tienda" ON activity_logs;
 DROP POLICY IF EXISTS "Cualquiera con acceso al log ve evidencias" ON activity_evidences;
 
--- 1. Dueño: Ve todo lo de sus tiendas (Independiente de su perfil activo)
-CREATE POLICY "Dueño ve todos los logs" ON activity_logs FOR SELECT USING (
-    EXISTS (SELECT 1 FROM stores WHERE id = activity_logs.store_id AND owner_id = auth.uid())
-);
+-- 1. Reportes: Permitir lectura pública (para Magic Links)
+CREATE POLICY "Lectura pública de logs" ON activity_logs FOR SELECT USING (true);
 
--- 2. Empleado: Ve los logs de su propia tienda
-CREATE POLICY "Empleado ve logs de su tienda" ON activity_logs FOR SELECT USING (
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND store_id = activity_logs.store_id)
-);
+-- 2. Evidencias: Permitir lectura pública
+CREATE POLICY "Lectura pública de evidencias" ON activity_evidences FOR SELECT USING (true);
 
--- 3. Evidencias: Si puedes ver el log, puedes ver la evidencia
-CREATE POLICY "Acceso a evidencias" ON activity_evidences FOR SELECT USING (
-    EXISTS (SELECT 1 FROM activity_logs WHERE id = activity_evidences.activity_log_id)
-);
+-- 3. Perfiles: Permitir lectura pública de nombres (para el join del dashboard)
+DROP POLICY IF EXISTS "Dueño ve perfiles de sus tiendas" ON profiles;
+DROP POLICY IF EXISTS "Empleado ve compañeros" ON profiles;
+CREATE POLICY "Lectura pública de perfiles" ON profiles FOR SELECT USING (true);
 
--- 4. Perfiles: PERMISO CRÍTICAMENTE MEJORADO
--- Permite que el dueño vea TODOS los perfiles de sus tiendas (necesario para ver nombres en el dashboard)
-DROP POLICY IF EXISTS "Ver nombres de la tienda" ON profiles;
-CREATE POLICY "Dueño ve perfiles de sus tiendas" ON profiles FOR SELECT USING (
-    EXISTS (SELECT 1 FROM stores WHERE id = profiles.store_id AND owner_id = auth.uid())
-);
-
--- Permite que los empleados vean nombres de sus compañeros
-CREATE POLICY "Empleado ve compañeros" ON profiles FOR SELECT USING (
-    EXISTS (SELECT 1 FROM profiles p2 WHERE p2.id = auth.uid() AND p2.store_id = profiles.store_id)
-);
-
--- 5. FORZAR TIPO DE NEGOCIO (Asegurar que Don Chingon sea de Reportes)
+-- 4. FORZAR CONFIGURACIÓN: Asegurar que Don Chingon sea de Reportes
 UPDATE stores SET business_type = 'activity_logs' WHERE name ILIKE '%Don Chingon%';
 
 -- 5. Instrucción para Storage:
