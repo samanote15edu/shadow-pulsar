@@ -194,7 +194,6 @@ serve(async (req) => {
     if (lockError) return new Response('OK', { status: 200 });
 
     console.log(`[BOT] Mensaje recibido de ${from}: ${text}`);
-    await logDebug(from, 'message_received', { text, normalized, messageId, buttonId });
 
     // --- 2. CONSULTAS DE CONTEXTO ---
     const [profileRes, stateRes] = await Promise.all([
@@ -203,11 +202,11 @@ serve(async (req) => {
     ]);
 
     const profile = profileRes.data;
-    const store = Array.isArray(profile?.stores) ? profile.stores[0] : profile?.stores;
     const state = stateRes.data;
+    const store = Array.isArray(profile?.stores) ? profile.stores[0] : profile?.stores;
 
-    console.log(`[BOT] Contexto: Profile=${!!profile}, StoreType=${store?.business_type || 'none'}, State=${state?.step || 'none'}`);
-    await logDebug(from, 'context_check', { hasProfile: !!profile, business_type: store?.business_type, state: state?.step || 'none' });
+    // Log contextual (No bloquea la decisión principal)
+    logDebug(from, 'message_received', { text, normalized, messageId, buttonId, hasProfile: !!profile });
     const isMagicCode = normalized === 'tiendita2026' || normalized === 'servicios2026';
     const isSwitchCommand = normalized === 'cambiar' || normalized === 'switch' || normalized.includes('cambiar tienda');
 
@@ -1147,6 +1146,43 @@ serve(async (req) => {
         await supabase.from('registration_states').delete().eq('whatsapp_number', from);
       }
 
+      // ESTADO: Confirmación de Anulación (Undo)
+      else if (step === 'awaiting_undo_confirmation') {
+        if (buttonId === 'confirm_undo') {
+          if (metadata.type === 'activity_log') {
+            await supabase.from('activity_logs').delete().eq('id', metadata.id);
+            await sendWhatsAppMessage(from, "✅ *Actividad Borrada*\n\nEl reporte ha sido eliminado correctamente.");
+          } else {
+            // Modo Inventario: Anular Transacción
+            const { data: tx } = await supabase.from('transactions').select('*').eq('id', metadata.id).single();
+            if (tx) {
+              // 1. Revertir Stock
+              await supabase.rpc('increment_stock', {
+                row_id: tx.product_id,
+                amount: Math.abs(tx.quantity_change)
+              });
+              // 2. Marcar como anulada
+              await supabase.from('transactions').update({ is_voided: true }).eq('id', tx.id);
+              // 3. Crear registro de reversa
+              await supabase.from('transactions').insert({
+                store_id: profile.store_id,
+                product_id: tx.product_id,
+                type: 'void',
+                quantity_change: Math.abs(tx.quantity_change),
+                total_amount: tx.total_amount,
+                notes: `ANULACIÓN DESDE WHATSAPP (Usuario: ${profile.full_name})`
+              });
+              await sendWhatsAppMessage(from, `✅ *Venta Anulada*\n\nSe han regresado las unidades al inventario.`);
+            }
+          }
+        } else {
+          await sendWhatsAppMessage(from, "Anulación cancelada. ❌");
+        }
+        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+        await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
+        return new Response('OK', { status: 200 });
+      }
+
       // ESTADO: Confirmación de Abono a Deuda (Ledgers)
       else if (step === 'awaiting_payment_ledgers_confirmation') {
         if (isPositive) {
@@ -1277,6 +1313,64 @@ serve(async (req) => {
           return new Response('OK', { status: 200 });
         }
         // Si no es servicios, dejamos que pase al parser de inventario (si aplica)
+      }
+
+      // 0.3 COMANDO ANULAR / BORRAR (Deshacer última acción)
+      if (normalized === 'anular' || normalized === 'borrar') {
+         const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+         
+         if (store?.business_type === 'activity_logs') {
+            const { data: lastLog } = await supabase.from('activity_logs')
+              .select('*')
+              .eq('performer_id', profile.id)
+              .gte('created_at', tenMinutesAgo)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (lastLog) {
+              await supabase.from('registration_states').upsert({
+                whatsapp_number: from,
+                step: 'awaiting_undo_confirmation',
+                metadata: { type: 'activity_log', id: lastLog.id, description: lastLog.description }
+              });
+              const buttons = [
+                { id: 'confirm_undo', title: 'Sí, borrar' },
+                { id: 'cancel_undo', title: 'No, dejar así' }
+              ];
+              await sendWhatsAppButtons(from, `⚠️ *¿Confirmas borrar esta actividad?*\n\n"${lastLog.description}"\n\n_Realizada hace unos minutos._`, buttons);
+            } else {
+              await sendWhatsAppMessage(from, "❌ No encontré ninguna actividad reciente tuya para borrar (Límite: 10 min).");
+            }
+         } else {
+            // Modo Inventario
+            const { data: lastTx } = await supabase.from('transactions')
+              .select('*, products(name)')
+              .eq('store_id', profile.store_id)
+              .eq('type', 'sale')
+              .eq('is_voided', false)
+              .gte('created_at', tenMinutesAgo)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (lastTx) {
+              await supabase.from('registration_states').upsert({
+                whatsapp_number: from,
+                step: 'awaiting_undo_confirmation',
+                metadata: { type: 'transaction', id: lastTx.id, description: `${lastTx.products?.name}: ${Math.abs(lastTx.quantity_change)}` }
+              });
+              const buttons = [
+                { id: 'confirm_undo', title: 'Sí, anular venta' },
+                { id: 'cancel_undo', title: 'No, dejar así' }
+              ];
+              await sendWhatsAppButtons(from, `⚠️ *¿Confirmas anular esta venta?*\n\n"${lastTx.products?.name || 'Venta'}" (${Math.abs(lastTx.quantity_change)} unidades)\n\n_Monto: $${lastTx.total_amount}_`, buttons);
+            } else {
+              await sendWhatsAppMessage(from, "❌ No encontré ninguna venta reciente tuya para anular (Límite: 10 min).");
+            }
+         }
+         await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
+         return new Response('OK', { status: 200 });
       }
 
       // LÓGICA DE REPORTES DE ACTIVIDAD (Iniciado por texto)
