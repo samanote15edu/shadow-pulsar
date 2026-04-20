@@ -1123,6 +1123,11 @@ serve(async (req) => {
         else if (normalized === 'finalizar' || buttonId === 'finish_report') {
           await supabase.from('registration_states').delete().eq('whatsapp_number', from);
           await sendWhatsAppMessage(from, "🏁 *Reporte Finalizado*\n\nGracias por tu informe. Ya está disponible para el dueño.");
+          
+          // Notificar al Dueño (Si el que reportó no es el dueño)
+          if (profile.role !== 'owner') {
+            await notifyOwner(profile.store_id, `✅ *REPORTE COMPLETADO*\n\n*${profile.full_name}* ha finalizado su reporte:\n"${metadata.description || 'Sin descripción'}"`);
+          }
         }
         else {
           await sendWhatsAppMessage(from, "📸 Por favor, envía una foto como evidencia o toca 'Finalizar'.");
@@ -1135,6 +1140,14 @@ serve(async (req) => {
 
     // B. COMANDOS NUEVOS
     if (profile) {
+      // 0. GENERACIÓN DE MAGIC LINK (Comando "Link")
+      if (normalized === 'link' || normalized === 'enlace') {
+        const magicLink = `https://shadow-pulsar.vercel.app/?s=${profile.store_id}&u=${profile.id}`;
+        await sendWhatsAppMessage(from, `🔗 *Tu Panel de Control*\n\nHaz clic aquí para acceder directamente:\n\n${magicLink}\n\n_Recuerda que este enlace es personal._`);
+        await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
+        return new Response('OK', { status: 200 });
+      }
+
       // LÓGICA DE REPORTES DE ACTIVIDAD (Iniciado por texto)
       if (store?.business_type === 'activity_logs') {
         if (text.length > 5) {
@@ -1148,7 +1161,7 @@ serve(async (req) => {
             await supabase.from('registration_states').upsert({
               whatsapp_number: from,
               step: 'awaiting_activity_evidence',
-              metadata: { logId: log.id }
+              metadata: { logId: log.id, description: text }
             });
             await sendWhatsAppMessage(from, `📝 *Reporte Iniciado*\n\nActividad: "${text}"\n\nPor favor, envía las fotos de evidencia una por una.`);
             return new Response('OK', { status: 200 });
