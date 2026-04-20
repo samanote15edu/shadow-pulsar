@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useStoreContext } from '../context/StoreContext';
+import { jsPDF } from 'jspdf';
 
 interface Evidence {
   id: string;
@@ -26,6 +27,7 @@ export default function ActivityLogView() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   // Filter States
@@ -74,7 +76,6 @@ export default function ActivityLogView() {
     const { data: logsData } = await query;
 
     if (logsData) {
-      // Fetch evidences for these logs
       const logIds = logsData.map(l => l.id);
       if (logIds.length > 0) {
         const { data: evidenceData } = await supabase
@@ -103,6 +104,103 @@ export default function ActivityLogView() {
     setEndDate('');
   };
 
+  const imgToBase64 = async (url: string): Promise<string> => {
+    try {
+      const resp = await fetch(url);
+      const blob = await resp.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (err) {
+      console.error('Error loading image for PDF:', err);
+      return '';
+    }
+  };
+
+  const generatePDF = async () => {
+    if (logs.length === 0) return;
+    setExporting(true);
+
+    const doc = new jsPDF();
+    const margin = 20;
+    let y = 20;
+
+    // Header
+    doc.setFontSize(22);
+    doc.setTextColor(0, 120, 215);
+    doc.text(selectedStore?.name || 'Bitácora de Campo', margin, y);
+    y += 10;
+
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    const dateRange = startDate && endDate ? `De ${startDate} a ${endDate}` : 'Reporte Consolidado';
+    doc.text(`Reporte de Actividades - ${dateRange}`, margin, y);
+    y += 20;
+
+    // Content
+    for (const log of logs) {
+      // Check page overflow
+      if (y > 250) {
+        doc.addPage();
+        y = 20;
+      }
+
+      // Activity Info
+      doc.setFontSize(12);
+      doc.setTextColor(50);
+      doc.setFont('helvetica', 'bold');
+      const dateStr = new Date(log.created_at).toLocaleString();
+      doc.text(`[${dateStr}] - ${log.performer_name}`, margin, y);
+      y += 6;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      doc.setTextColor(80);
+      const lines = doc.splitTextToSize(`"${log.description}"`, 170);
+      doc.text(lines, margin, y);
+      y += (lines.length * 6) + 4;
+
+      // Images
+      if (log.evidences && log.evidences.length > 0) {
+        let x = margin;
+        for (const ev of log.evidences) {
+          const base64 = await imgToBase64(ev.image_url);
+          if (base64) {
+            const imgWidth = 40;
+            const imgHeight = 40;
+            
+            // Check if image fits horizontally, else wrap to next line
+            if (x + imgWidth > 190) {
+              x = margin;
+              y += imgHeight + 5;
+            }
+            
+            // Check if image fits vertically on current page
+            if (y + imgHeight > 280) {
+              doc.addPage();
+              y = 20;
+              x = margin;
+            }
+
+            doc.addImage(base64, 'JPEG', x, y, imgWidth, imgHeight);
+            x += imgWidth + 5;
+          }
+        }
+        y += 45; // Move Y after the image row
+      }
+
+      y += 10; // Extra space between items
+      doc.setDrawColor(240);
+      doc.line(margin, y - 5, 190, y - 5);
+    }
+
+    doc.save(`Bitacora_${selectedStore?.name || 'Reporte'}_${new Date().toISOString().split('T')[0]}.pdf`);
+    setExporting(false);
+  };
+
   useEffect(() => {
     fetchEmployees();
   }, [selectedStore]);
@@ -110,17 +208,14 @@ export default function ActivityLogView() {
   useEffect(() => {
     fetchLogs();
     
-    // Real-time updates
     const sub = supabase.channel('activity-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_logs', filter: `store_id=eq.${selectedStore?.id}` }, () => fetchLogs())
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'activity_evidences' }, () => fetchLogs())
       .subscribe();
 
     return () => { supabase.removeChannel(sub); };
-  }, [selectedStore, performerId, startDate, endDate]); 
-  // We keep fetchLogs on filters change. searchTerm is handled by a debounced or manual trigger usually, but for simplicity here we can add it too or a button.
+  }, [selectedStore, performerId, startDate, endDate]);
 
-  // To avoid too many calls with searchTerm, let's trigger it with a small debounce or effect
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
       fetchLogs();
@@ -144,13 +239,29 @@ export default function ActivityLogView() {
             <h2 className="text-xl font-bold bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent uppercase tracking-tighter italic">Bitácora de Campo</h2>
             <p className="text-slate-500 text-xs font-medium">Reportes de actividad y evidencias en tiempo real</p>
           </div>
-          <button 
-            onClick={fetchLogs}
-            className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white hover:border-white/20 transition-all"
-            title="Actualizar"
-          >
-            🔄
-          </button>
+          <div className="flex gap-3">
+            <button 
+              onClick={generatePDF}
+              disabled={exporting || logs.length === 0}
+              className={`h-10 px-4 rounded-xl border flex items-center gap-2 text-xs font-bold uppercase tracking-widest transition-all ${
+                exporting || logs.length === 0
+                ? 'bg-white/5 border-white/5 text-slate-600 cursor-not-allowed'
+                : 'bg-sky-500/10 border-sky-500/20 text-sky-400 hover:bg-sky-500 hover:text-white hover:border-sky-500 shadow-lg shadow-sky-500/10'
+              }`}
+            >
+              {exporting ? (
+                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+              ) : '📄'}
+              <span>Reporte PDF</span>
+            </button>
+            <button 
+              onClick={fetchLogs}
+              className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white hover:border-white/20 transition-all shadow-lg"
+              title="Actualizar"
+            >
+              🔄
+            </button>
+          </div>
         </div>
 
         {/* Filters Bar */}
@@ -162,7 +273,7 @@ export default function ActivityLogView() {
               placeholder="Buscar por descripción..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-sky-500/50 transition-all"
+              className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-sky-500/50 transition-all shadow-inner"
             />
           </div>
 
