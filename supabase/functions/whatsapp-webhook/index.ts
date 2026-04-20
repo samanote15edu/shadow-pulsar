@@ -1232,10 +1232,51 @@ serve(async (req) => {
     if (profile) {
       // 0. GENERACIÓN DE MAGIC LINK (Comando "Link")
       if (normalized === 'link' || normalized === 'enlace') {
-        const magicLink = `https://shadow-pulsar.vercel.app/?s=${profile.store_id}&u=${profile.id}`;
-        await sendWhatsAppMessage(from, `🔗 *Tu Panel de Control*\n\nHaz clic aquí para acceder directamente:\n\n${magicLink}\n\n_Recuerda que este enlace es personal._`);
+        if (profile.role === 'owner') {
+          const magicLink = `https://shadow-pulsar.vercel.app/?s=${profile.store_id}&u=${profile.id}`;
+          await sendWhatsAppMessage(from, `🔗 *Tu Panel de Control*\n\nHaz clic aquí para acceder directamente:\n\n${magicLink}\n\n_Recuerda que este enlace es personal._`);
+        } else {
+          await sendWhatsAppMessage(from, "🔒 *Acceso Restringido*\n\nEsta función es solo para dueños. Tu cuenta está configurada para reportar actividades de equipo.");
+        }
         await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
         return new Response('OK', { status: 200 });
+      }
+
+      // 0.1 GENERACIÓN DE CÓDIGO DE INVITACIÓN (Comando "Invitar")
+      if (normalized === 'invitar' || normalized.includes('invitacion')) {
+        if (profile.role === 'owner') {
+          const randomCode = `INV-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+          await supabase.from('invite_codes').insert({
+            code: randomCode,
+            max_uses: 5,
+            metadata: { role: 'employee', store_id: profile.store_id }
+          });
+          await sendWhatsAppMessage(from, `🎟️ *Nueva Invitación*\n\nPasa este código a tu empleado:\n\n*${randomCode}*\n\nDile que lo escriba aquí para unirse a tu equipo.`);
+        } else {
+          await sendWhatsAppMessage(from, "🔒 *Función solo para Dueños*\n\nSolo el administrador de la cuenta puede invitar a nuevos empleados.");
+        }
+        await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
+        return new Response('OK', { status: 200 });
+      }
+
+      // 0.2 MENÚ DE AYUDA (Específico para Servicios)
+      if (normalized === 'ayuda' || normalized === 'menu' || normalized === 'comandos') {
+        if (store?.business_type === 'activity_logs') {
+          if (profile.role === 'owner') {
+            let help = "❓ *AYUDA: MODO BITÁCORA*\n\n";
+            help += "• *Reportar:* Describe tu actividad (ej: 'Instalación de red') y envía fotos.\n";
+            help += "• *Cambiar:* Para saltar a tu otra empresa.\n";
+            help += "• *Invitar:* Genera códigos para tus empleados.\n";
+            help += "• *Link:* Acceso al Dashboard y reportes PDF.\n\n";
+            help += "_Cualquier texto largo que envíes iniciará un nuevo reporte._";
+            await sendWhatsAppMessage(from, help);
+          } else {
+            await sendWhatsAppMessage(from, "📝 *Tu función:* Reportar actividades escribiendo lo que hiciste y enviando fotos de evidencia.");
+          }
+          await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
+          return new Response('OK', { status: 200 });
+        }
+        // Si no es servicios, dejamos que pase al parser de inventario (si aplica)
       }
 
       // LÓGICA DE REPORTES DE ACTIVIDAD (Iniciado por texto)
@@ -1323,9 +1364,13 @@ serve(async (req) => {
           .eq('code', invite.code);
 
         // Obtener info de la tienda para la bienvenida
-        const { data: store } = await supabase.from('stores').select('name').eq('id', metadata.store_id).single();
+        const { data: targetStore } = await supabase.from('stores').select('name, business_type').eq('id', metadata.store_id).single();
         
-        await sendWhatsAppMessage(from, `✅ ¡Bienvenido! Has sido registrado como empleado en *${store?.name || 'la tienda'}*.\n\nYa puedes registrar ventas escribiendo algo como: "2 cocas" o "Fiado Maria: 1 gansito".`);
+        const welcomeMsg = targetStore?.business_type === 'activity_logs'
+          ? `✅ ¡Bienvenido! Has sido registrado como empleado en *${targetStore.name}* (Modo Bitácora).\n\nYa puedes reportar tus tareas describiéndolas aquí y enviando fotos de evidencia.`
+          : `✅ ¡Bienvenido! Has sido registrado como empleado en *${targetStore.name}* (Modo Inventario).\n\nYa puedes registrar ventas escribiendo algo como: "2 cocas" o "Fiado Maria: 1 gansito".`;
+        
+        await sendWhatsAppMessage(from, welcomeMsg);
 
         // Notificar al Dueño
         const { data: owner } = await supabase.from('profiles').select('whatsapp_number').eq('store_id', metadata.store_id).eq('role', 'owner').maybeSingle();
