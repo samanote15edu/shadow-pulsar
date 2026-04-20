@@ -101,20 +101,49 @@ export async function executeCommand(
     for (const seg of segments) {
       if (!seg.trim()) continue;
 
-      // Extract Quantity, Name, and Price from segment (e.g. "2 cocas a 20")
-      const itemMatch = seg.trim().match(/^(?:(\d+)|(un|una))\s+([\s\w]+?)(?:\s+(?:a|de|por)\s+[\$]?([\d\.]+))?$/i);
-      
-      if (itemMatch) {
-        const qty = itemMatch[1] ? parseInt(itemMatch[1], 10) : 1;
-        const name = itemMatch[3].trim();
-        const price = itemMatch[4] ? parseFloat(itemMatch[4]) : null;
-        items.push({ name, qty, price });
-      } else {
-        items.push({ name: seg.trim(), qty: 1, price: null });
+      let s = seg.trim();
+      let price: number | null = null;
+      let qty: number | null = null;
+      let name = '';
+
+      // 1. Extraer Precio (al final del todo)
+      const priceMatch = s.match(/(?:\s+(?:a|de|por)\s+[\$]?([\d\.]+))$/i);
+      if (priceMatch) {
+        price = parseFloat(priceMatch[1]);
+        s = s.slice(0, s.lastIndexOf(priceMatch[0])).trim();
       }
+
+      // 2. Extraer Cantidad (principio o fin)
+      const qtyStartMatch = s.match(/^(\d+)\s+(.+)$/);
+      const qtyEndMatch = s.match(/^(.+)\s+(\d+)$/);
+      const unMatch = s.match(/^(un|una|uno)\s+(.+)$/i);
+
+      if (qtyStartMatch) {
+        qty = parseInt(qtyStartMatch[1], 10);
+        name = qtyStartMatch[2].trim();
+      } else if (qtyEndMatch) {
+        qty = parseInt(qtyEndMatch[2], 10);
+        name = qtyEndMatch[1].trim();
+      } else if (unMatch) {
+        qty = 1;
+        name = unMatch[2].trim();
+      } else {
+        name = s.trim();
+      }
+
+      items.push({ name, qty, price });
     }
 
-    // Determine next step
+    // Determine next step (Prioritize missing qty, then missing price)
+    const missingQtyItem = items.find(i => i.qty === null);
+    if (missingQtyItem) {
+      return {
+        responseText: `👤 *Fiado para ${customer}*\n\n¿Cuántas unidades de *${missingQtyItem.name}* se lleva?`,
+        nextStep: 'awaiting_item_qty',
+        metadata: { customer, items, currentIdx: items.indexOf(missingQtyItem) }
+      };
+    }
+
     const missingPriceItem = items.find(i => i.price === null);
     if (missingPriceItem) {
       return {

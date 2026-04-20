@@ -230,6 +230,49 @@ serve(async (req) => {
          }
       }
 
+      // FIADO: Captura de Cantidad para Item Específico
+      else if (step === 'awaiting_item_qty') {
+        const qty = parseInt(text.replace(/[^0-9]/g, ''));
+        if (isNaN(qty) || qty <= 0) {
+          await sendWhatsAppMessage(from, "❌ Por favor envía un número válido para la cantidad (ej: 3).");
+          return new Response('OK', { status: 200 });
+        }
+
+        const items = [...metadata.items];
+        items[metadata.currentIdx].qty = qty;
+
+        // Buscar el siguiente que falte (Prioridad Cantidad)
+        const nextMissingQtyIdx = items.findIndex((it, idx) => idx > metadata.currentIdx && it.qty === null);
+        
+        if (nextMissingQtyIdx !== -1) {
+          await supabase.from('registration_states').update({
+            metadata: { ...metadata, items, currentIdx: nextMissingQtyIdx }
+          }).eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `👤 *Fiado para ${metadata.customer}*\n\n¿Cuántas unidades de *${items[nextMissingQtyIdx].name}*?`);
+        } else {
+          // Ya no faltan cantidades, buscar si faltan precios
+          const nextMissingPriceIdx = items.findIndex(it => it.price === null);
+          if (nextMissingPriceIdx !== -1) {
+            await supabase.from('registration_states').update({
+              step: 'awaiting_item_price',
+              metadata: { ...metadata, items, currentIdx: nextMissingPriceIdx }
+            }).eq('whatsapp_number', from);
+            await sendWhatsAppMessage(from, `👤 *Fiado para ${metadata.customer}*\n\n¿A cuánto vendiste *${items[nextMissingPriceIdx].name}*?`);
+          } else {
+            // Ya tenemos todo
+            const ticket = generateVisualReceipt(metadata.customer, items);
+            await supabase.from('registration_states').update({
+              step: 'awaiting_fiado_approval',
+              metadata: { ...metadata, items }
+            }).eq('whatsapp_number', from);
+            await sendWhatsAppButtons(from, ticket, [
+              { id: 'yes', title: 'SÍ ✅' },
+              { id: 'no', title: 'NO ❌' }
+            ]);
+          }
+        }
+      }
+
       // FIADO: Captura de Precio para Item Específico
       else if (step === 'awaiting_item_price') {
         const price = parseFloat(text.replace(/[^0-9.]/g, ''));
