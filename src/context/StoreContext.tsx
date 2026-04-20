@@ -85,11 +85,23 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // B. Loading a Specific Store (s=...)
         if (targetStoreId) {
           const { data: store, error: storeError } = await supabase.from('stores').select('id, name, address, business_type').eq('id', targetStoreId).single();
+          
           if (!storeError && store) {
             setIsDemo(false);
-            setStores([store]);
             setSelectedStore(store);
             localStorage.setItem('last_store_id', targetStoreId);
+
+            // FETCH ALL STORES if we have a user ID (to allow switching)
+            if (magicUserId) {
+              const { data: storesList } = await supabase.from('stores').select('id, name, address, business_type').eq('owner_id', magicUserId);
+              if (storesList && storesList.length > 0) {
+                setStores(storesList);
+              } else {
+                setStores([store]);
+              }
+            } else {
+              setStores([store]);
+            }
 
             // Fetch profile for this session
             let profileQuery = supabase.from('profiles').select('full_name, role');
