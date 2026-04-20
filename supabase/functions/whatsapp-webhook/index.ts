@@ -202,12 +202,12 @@ serve(async (req) => {
       supabase.from('registration_states').select('*').eq('whatsapp_number', from).maybeSingle()
     ]);
 
-    const profile = profileRes.data as any;
-    const store = profile?.stores;
+    const profile = profileRes.data;
+    const store = Array.isArray(profile?.stores) ? profile.stores[0] : profile?.stores;
     const state = stateRes.data;
 
-    console.log(`[BOT] Contexto: Profile=${!!profile}, State=${state?.step || 'none'}`);
-    await logDebug(from, 'context_check', { hasProfile: !!profile, state: state?.step || 'none' });
+    console.log(`[BOT] Contexto: Profile=${!!profile}, StoreType=${store?.business_type || 'none'}, State=${state?.step || 'none'}`);
+    await logDebug(from, 'context_check', { hasProfile: !!profile, business_type: store?.business_type, state: state?.step || 'none' });
 
     // --- 3. LOGICA PRINCIPAL ---
 
@@ -1101,10 +1101,6 @@ serve(async (req) => {
         }
         await supabase.from('registration_states').delete().eq('whatsapp_number', from);
       }
-
-      await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
-      return new Response('OK', { status: 200 });
-    }
 
       // ESTADO: REPORTES DE ACTIVIDAD (CAPTURA DE EVIDENCIA)
       else if (step === 'awaiting_activity_evidence') {
