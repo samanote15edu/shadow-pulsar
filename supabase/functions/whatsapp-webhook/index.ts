@@ -56,6 +56,36 @@ async function sendWhatsAppButtons(to: string, bodyText: string, buttons: { id: 
   });
 }
 
+// --- MEDIA HELPERS ---
+async function downloadAndUploadImage(mediaId: string, storeId: string, profileId: string): Promise<string | null> {
+  try {
+    const mediaUrlRes = await fetch(`https://graph.facebook.com/v17.0/${mediaId}`, {
+      headers: { 'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}` }
+    });
+    const mediaUrlData = await mediaUrlRes.json();
+    if (!mediaUrlData.url) return null;
+
+    const imgRes = await fetch(mediaUrlData.url, {
+      headers: { 'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}` }
+    });
+    const imgBlob = await imgRes.blob();
+    const fileName = `${storeId}/${profileId}/${Date.now()}.jpg`;
+
+    const { data, error } = await supabase.storage
+      .from('evidences')
+      .upload(fileName, imgBlob, { contentType: 'image/jpeg' });
+
+    if (error) throw error;
+    
+    // Devolvemos la URL pública
+    const { data: { publicUrl } } = supabase.storage.from('evidences').getPublicUrl(fileName);
+    return publicUrl;
+  } catch (err) {
+    console.error('[MEDIA ERROR]', err);
+    return null;
+  }
+}
+
 // --- UTILIDADES ---
 function normalizeText(text: string): string {
   return text
@@ -148,6 +178,8 @@ serve(async (req) => {
       text = message.interactive.button_reply.title;
       isButtonYes = (buttonId === 'yes' || buttonId === 'full');
       isButtonNo = (buttonId === 'no' || buttonId === 'partial');
+    } else if (message.type === 'image') {
+      text = message.image.caption || '';
     } else {
       text = (message.text?.body || '').trim();
     }
@@ -166,11 +198,12 @@ serve(async (req) => {
 
     // --- 2. CONSULTAS DE CONTEXTO ---
     const [profileRes, stateRes] = await Promise.all([
-      supabase.from('profiles').select('*').eq('whatsapp_number', from).maybeSingle(),
+      supabase.from('profiles').select('*, stores(name, business_type)').eq('whatsapp_number', from).maybeSingle(),
       supabase.from('registration_states').select('*').eq('whatsapp_number', from).maybeSingle()
     ]);
 
-    const profile = profileRes.data;
+    const profile = profileRes.data as any;
+    const store = profile?.stores;
     const state = stateRes.data;
 
     console.log(`[BOT] Contexto: Profile=${!!profile}, State=${state?.step || 'none'}`);
@@ -1073,8 +1106,63 @@ serve(async (req) => {
       return new Response('OK', { status: 200 });
     }
 
+      // ESTADO: REPORTES DE ACTIVIDAD (CAPTURA DE EVIDENCIA)
+      else if (step === 'awaiting_activity_evidence') {
+        if (message.type === 'image' && metadata.logId) {
+          const publicUrl = await downloadAndUploadImage(message.image.id, profile.store_id, profile.id);
+          if (publicUrl) {
+            await supabase.from('activity_evidences').insert({
+              activity_log_id: metadata.logId,
+              image_url: publicUrl,
+              media_id_whatsapp: message.image.id
+            });
+            await sendWhatsAppButtons(from, "✅ ¡Imagen recibida!\n\n¿Deseas enviar otra foto o ya terminaste?", [
+              { id: 'add_more', title: 'OTRA FOTO 📸' },
+              { id: 'finish_report', title: 'FINALIZAR ✅' }
+            ]);
+          } else {
+            await sendWhatsAppMessage(from, "❌ Hubo un problema guardando la foto. Intenta de nuevo.");
+          }
+        } 
+        else if (normalized === 'finalizar' || buttonId === 'finish_report') {
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, "🏁 *Reporte Finalizado*\n\nGracias por tu informe. Ya está disponible para el dueño.");
+        }
+        else {
+          await sendWhatsAppMessage(from, "📸 Por favor, envía una foto como evidencia o toca 'Finalizar'.");
+        }
+      }
+
+      await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
+      return new Response('OK', { status: 200 });
+    }
+
     // B. COMANDOS NUEVOS
     if (profile) {
+      // LÓGICA DE REPORTES DE ACTIVIDAD (Iniciado por texto)
+      if (store?.business_type === 'activity_logs') {
+        if (text.length > 5) {
+          const { data: log } = await supabase.from('activity_logs').insert({
+            store_id: profile.store_id,
+            performer_id: profile.id,
+            description: text
+          }).select().single();
+
+          if (log) {
+            await supabase.from('registration_states').upsert({
+              whatsapp_number: from,
+              step: 'awaiting_activity_evidence',
+              metadata: { logId: log.id }
+            });
+            await sendWhatsAppMessage(from, `📝 *Reporte Iniciado*\n\nActividad: "${text}"\n\nPor favor, envía las fotos de evidencia una por una.`);
+            return new Response('OK', { status: 200 });
+          }
+        } else {
+          await sendWhatsAppMessage(from, "👋 ¡Hola! Para reportar una actividad, descríbela detalladamente (más de 5 letras).");
+          return new Response('OK', { status: 200 });
+        }
+      }
+
       console.time('executeCommand');
       const res = await executeCommand(text, supabase, profile.store_id, profile.role, from, profile.id);
       console.timeEnd('executeCommand');

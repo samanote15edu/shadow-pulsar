@@ -7,6 +7,7 @@ interface Store {
   address: string;
   logo_url?: string;
   description?: string;
+  business_type?: 'inventory' | 'activity_logs';
 }
 
 interface StoreContextType {
@@ -64,13 +65,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setUserRole(profile.role as any);
 
             if (profile.role === 'owner') {
-              const { data: storesList } = await supabase.from('stores').select('*').eq('owner_id', profile.id);
+              const { data: storesList } = await supabase.from('stores').select('id, name, address, business_type').eq('owner_id', profile.id);
               if (storesList && storesList.length > 0) {
                 setStores(storesList);
                 setSelectedStore(null); // Force selection for Hub feel
               }
             } else if (profile.store_id) {
-              const { data: empStore } = await supabase.from('stores').select('*').eq('id', profile.store_id).single();
+              const { data: empStore } = await supabase.from('stores').select('id, name, address, business_type').eq('id', profile.store_id).single();
               if (empStore) {
                 setStores([empStore]);
                 setSelectedStore(empStore);
@@ -83,7 +84,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         // B. Loading a Specific Store (s=...)
         if (targetStoreId) {
-          const { data: store, error: storeError } = await supabase.from('stores').select('*').eq('id', targetStoreId).single();
+          const { data: store, error: storeError } = await supabase.from('stores').select('id, name, address, business_type').eq('id', targetStoreId).single();
           if (!storeError && store) {
             setIsDemo(false);
             setStores([store]);
@@ -118,7 +119,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (user) {
           setIsDemo(false);
           const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-          const { data: storesList } = await supabase.from('stores').select('*').eq('owner_id', user.id);
+          const { data: storesList } = await supabase.from('stores').select('id, name, address, business_type').eq('owner_id', user.id);
           
           if (storesList && storesList.length > 0) {
             setStores(storesList);
@@ -135,7 +136,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setUserRole(profile.role as any);
             setUserName(profile.full_name);
             if (profile.store_id) {
-              const { data: store } = await supabase.from('stores').select('*').eq('id', profile.store_id).single();
+              const { data: store } = await supabase.from('stores').select('id, name, address, business_type').eq('id', profile.store_id).single();
               if (store) {
                 setStores([store]);
                 setSelectedStore(store);

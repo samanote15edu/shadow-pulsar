@@ -7,6 +7,7 @@ import { useStoreContext } from '../context/StoreContext';
 import AddProductModal from './AddProductModal';
 import EditProductModal from './EditProductModal';
 import ApprovalInbox from './ApprovalInbox';
+import ActivityLogView from './ActivityLogView';
 
 interface Product {
   id: string;
@@ -308,123 +309,127 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
           </button>
         </div>
       </header>
-
-      <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <StatCard title="Ventas del Día" value={`$${stats.sales}`} delta="+12%" icon="💰" color="emerald" />
-          {userRole === 'owner' && (
-            <StatCard 
-              title="Mermas (30d)" 
-              value={`$${Math.abs(stats.shrinkage)}`} 
-              delta={stats.shrinkage < 0 ? "Pérdida" : "Ver Detalle"} 
-              icon="📉" 
-              color={stats.shrinkage < 0 ? "red" : "sky"} 
-              onClick={() => navigate('/audit')}
-            />
-          )}
-          <StatCard 
-            title="Stock Bajo" 
-            value={`${stats.lowStock} Items`} 
-            delta={stats.lowStock > 0 ? "Atención" : "Optimo"} 
-            icon="⚠️" 
-            color={stats.lowStock > 0 ? "amber" : "emerald"}
-            description={lowStockProducts.length > 0 ? lowStockProducts.map(p => p.name).join(', ') : undefined}
-          />
-          <StatCard 
-            title="Fiado Total" 
-            value={`$${stats.fiado}`} 
-            delta="Ver Detalles" 
-            icon="👥" 
-            color="indigo" 
-            onClick={() => navigate('/debtors')}
-          />
-        </div>
-
-        <div className="space-y-6">
-          {userRole === 'owner' && (
-            <div className="glass-pane rounded-3xl p-6">
-              <h2 className="text-lg font-black mb-4 uppercase tracking-tighter italic flex items-center gap-2">
-                <span className="text-sky-400">⚡</span> Bandeja de Aprobación
-              </h2>
-              <ApprovalInbox />
-            </div>
-          )}
-
-          <div className="glass-pane rounded-3xl p-6 h-fit max-h-[500px] overflow-y-auto">
-            <h2 className="text-lg font-semibold mb-4 flex items-center justify-between font-black uppercase tracking-tighter italic">
-              <span className="flex items-center gap-2"><span className="text-green-400 animate-pulse">●</span> Actividad Reciente</span>
+      
+      {selectedStore?.business_type === 'activity_logs' ? (
+        <ActivityLogView />
+      ) : (
+        <main className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <StatCard title="Ventas del Día" value={`$${stats.sales}`} delta="+12%" icon="💰" color="emerald" />
             {userRole === 'owner' && (
-              <button 
-                onClick={() => navigate('/ledger')}
-                className="text-[10px] text-sky-400 hover:text-sky-300 transition-colors tracking-widest"
-              >
-                Ver Todo →
-              </button>
-            )}
-          </h2>
-          <div className="space-y-4">
-            {recentActivity.length > 0 ? recentActivity.map(a => (
-              <ActivityItem 
-                key={a.id} 
-                transaction={a}
-                onVoid={() => handleVoid(a)}
-                showVoid={userRole === 'owner'}
+              <StatCard 
+                title="Mermas (30d)" 
+                value={`$${Math.abs(stats.shrinkage)}`} 
+                delta={stats.shrinkage < 0 ? "Pérdida" : "Ver Detalle"} 
+                icon="📉" 
+                color={stats.shrinkage < 0 ? "red" : "sky"} 
+                onClick={() => navigate('/audit')}
               />
-            )) : <p className="text-slate-500 text-sm">No hay actividad reciente.</p>}
+            )}
+            <StatCard 
+              title="Stock Bajo" 
+              value={`${stats.lowStock} Items`} 
+              delta={stats.lowStock > 0 ? "Atención" : "Optimo"} 
+              icon="⚠️" 
+              color={stats.lowStock > 0 ? "amber" : "emerald"}
+              description={lowStockProducts.length > 0 ? lowStockProducts.map(p => p.name).join(', ') : undefined}
+            />
+            <StatCard 
+              title="Fiado Total" 
+              value={`$${stats.fiado}`} 
+              delta="Ver Detalles" 
+              icon="👥" 
+              color="indigo" 
+              onClick={() => navigate('/debtors')}
+            />
           </div>
-        </div>
-      </div>
 
-      <div className="lg:col-span-3 glass-pane rounded-3xl overflow-hidden mt-4">
-          <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-white/[0.02]">
-            <h2 className="text-lg font-semibold">Inventario de Productos</h2>
-            <div className="flex gap-2">
-              <button onClick={onOpenScan} className="bg-sky-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-sky-600 transition-colors flex items-center gap-2 shadow-lg shadow-sky-500/20 uppercase tracking-widest"><span>📷</span> Escanear</button>
-              {userRole === 'owner' && (
-                <button onClick={() => setIsAddModalOpen(true)} className="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-700 transition-colors uppercase tracking-widest">+ Nuevo</button>
-              )}
+          <div className="space-y-6">
+            {userRole === 'owner' && (
+              <div className="glass-pane rounded-3xl p-6">
+                <h2 className="text-lg font-black mb-4 uppercase tracking-tighter italic flex items-center gap-2">
+                  <span className="text-sky-400">⚡</span> Bandeja de Aprobación
+                </h2>
+                <ApprovalInbox />
+              </div>
+            )}
+
+            <div className="glass-pane rounded-3xl p-6 h-fit max-h-[500px] overflow-y-auto">
+              <h2 className="text-lg font-semibold mb-4 flex items-center justify-between font-black uppercase tracking-tighter italic">
+                <span className="flex items-center gap-2"><span className="text-green-400 animate-pulse">●</span> Actividad Reciente</span>
+                {userRole === 'owner' && (
+                  <button 
+                    onClick={() => navigate('/ledger')}
+                    className="text-[10px] text-sky-400 hover:text-sky-300 transition-colors tracking-widest"
+                  >
+                    Ver Todo →
+                  </button>
+                )}
+              </h2>
+              <div className="space-y-4">
+                {recentActivity.length > 0 ? recentActivity.map(a => (
+                  <ActivityItem 
+                    key={a.id} 
+                    transaction={a}
+                    onVoid={() => handleVoid(a)}
+                    showVoid={userRole === 'owner'}
+                  />
+                )) : <p className="text-slate-500 text-sm">No hay actividad reciente.</p>}
+              </div>
             </div>
           </div>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full text-left hidden md:table">
-              <thead>
-                <tr className="text-slate-500 text-xs font-black uppercase tracking-widest border-b border-slate-800">
-                  <th className="p-4 pl-6">Producto</th>
-                  <th className="p-4 text-center">Stock</th>
-                  {userRole === 'owner' && <th className="p-4 text-center">Costo</th>}
-                  <th className="p-4 text-center">Venta</th>
-                  <th className="p-4">Estado</th>
-                  <th className="p-4 text-right pr-6">Acción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/50">
+
+          <div className="lg:col-span-3 glass-pane rounded-3xl overflow-hidden mt-4">
+            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-white/[0.02]">
+              <h2 className="text-lg font-semibold">Inventario de Productos</h2>
+              <div className="flex gap-2">
+                <button onClick={onOpenScan} className="bg-sky-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-sky-600 transition-colors flex items-center gap-2 shadow-lg shadow-sky-500/20 uppercase tracking-widest"><span>📷</span> Escanear</button>
+                {userRole === 'owner' && (
+                  <button onClick={() => setIsAddModalOpen(true)} className="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-700 transition-colors uppercase tracking-widest">+ Nuevo</button>
+                )}
+              </div>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left hidden md:table">
+                <thead>
+                  <tr className="text-slate-500 text-xs font-black uppercase tracking-widest border-b border-slate-800">
+                    <th className="p-4 pl-6">Producto</th>
+                    <th className="p-4 text-center">Stock</th>
+                    {userRole === 'owner' && <th className="p-4 text-center">Costo</th>}
+                    <th className="p-4 text-center">Venta</th>
+                    <th className="p-4">Estado</th>
+                    <th className="p-4 text-right pr-6">Acción</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/50">
+                    {products.length > 0 ? products.map(p => (
+                      <ProductRow 
+                        key={p.id} 
+                        product={p} 
+                        onEdit={() => handleEditClick(p)} 
+                        onDelete={() => handleDeleteProduct(p)}
+                        userRole={userRole}
+                      />
+                    )) : <tr><td colSpan={userRole === 'owner' ? 6 : 5} className="p-8 text-center text-slate-500">No hay productos registrados.</td></tr>}
+                </tbody>
+              </table>
+
+              <div className="md:hidden divide-y divide-slate-800/50">
                   {products.length > 0 ? products.map(p => (
-                    <ProductRow 
+                    <ProductCard 
                       key={p.id} 
                       product={p} 
                       onEdit={() => handleEditClick(p)} 
                       onDelete={() => handleDeleteProduct(p)}
                       userRole={userRole}
                     />
-                  )) : <tr><td colSpan={userRole === 'owner' ? 6 : 5} className="p-8 text-center text-slate-500">No hay productos registrados.</td></tr>}
-              </tbody>
-            </table>
-
-            <div className="md:hidden divide-y divide-slate-800/50">
-                {products.length > 0 ? products.map(p => (
-                  <ProductCard 
-                    key={p.id} 
-                    product={p} 
-                    onEdit={() => handleEditClick(p)} 
-                    onDelete={() => handleDeleteProduct(p)}
-                    userRole={userRole}
-                  />
-                )) : <div className="p-8 text-center text-slate-500">No hay productos registrados.</div>}
+                  )) : <div className="p-8 text-center text-slate-500">No hay productos registrados.</div>}
+              </div>
             </div>
           </div>
-        </div>
-      </main>
+        </main>
+      )}
 
       <AddProductModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onAdd={(newProd) => {
         const prod: Product = { 
