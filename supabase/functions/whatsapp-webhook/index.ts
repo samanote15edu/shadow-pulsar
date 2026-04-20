@@ -248,6 +248,65 @@ serve(async (req) => {
         
         await sendWhatsAppMessage(from, `📦 *Surtido de ${metadata.productName}*\n\n¿Cuánto te costó cada unidad esta vez?`);
       }
+      
+      // ESTADO: Nuevo flujo de Surtido Guiado (Nombre)
+      else if (step === 'awaiting_restock_name_guided') {
+        const productName = text.trim();
+        await supabase.from('registration_states').update({
+          step: 'awaiting_restock_qty_guided',
+          metadata: { productName }
+        }).eq('whatsapp_number', from);
+        
+        await sendWhatsAppMessage(from, `¡Perfecto! ¿Cuántas unidades de *${productName}* te llegaron?`);
+      }
+
+      // ESTADO: Nuevo flujo de Surtido Guiado (Cantidad) -> Desencadena el flujo estándar
+      else if (step === 'awaiting_restock_qty_guided') {
+        const qty = parseInt(text.replace(/[^0-9]/g, ''));
+        if (isNaN(qty) || qty <= 0) {
+          await sendWhatsAppMessage(from, "❌ Por favor, envía un número válido para la cantidad (ej: 10).");
+          return new Response('OK', { status: 200 });
+        }
+
+        const productName = metadata.productName;
+        const { data: allProds } = await supabase.from('products').select('*').eq('store_id', profile.store_id).eq('is_active', true);
+        
+        // Reutilizamos la lógica del parser para encontrar similares
+        // Nota: En una refactorización ideal, esto estaría en un ayudante compartido
+        const input = productName.toLowerCase();
+        const inputStem = input.length > 3 && input.endsWith('s') ? input.slice(0, -1) : input;
+        
+        const similar = allProds?.find(p => {
+          const dbName = p.name.toLowerCase();
+          const dbStem = dbName.length > 3 && dbName.endsWith('s') ? dbName.slice(0, -1) : dbName;
+          return dbName.includes(input) || input.includes(dbName) || dbName.includes(inputStem) || inputStem.includes(dbName) || dbStem.includes(input);
+        });
+
+        if (similar) {
+          if (similar.name.toLowerCase() === productName.toLowerCase()) {
+            await supabase.from('registration_states').update({
+              step: 'awaiting_product_cost',
+              metadata: { productId: similar.id, qty, productName: similar.name, unit: similar.unit_of_measure }
+            }).eq('whatsapp_number', from);
+            await sendWhatsAppMessage(from, `📦 *Surtido: ${similar.name}*\n\n¿Cuánto te costó cada ${similar.unit_of_measure || 'unidad'} esta vez? (Costo anterior: $${similar.last_cost_price || 0})`);
+          } else {
+            await supabase.from('registration_states').update({
+              step: 'awaiting_similarity_confirmation',
+              metadata: { productId: similar.id, qty, productName: similar.name, newName: productName, unit: similar.unit_of_measure }
+            }).eq('whatsapp_number', from);
+            await sendWhatsAppButtons(from, `🔍 *He encontrado "${similar.name}"*\n\n¿Es el mismo producto que "${productName}"?`, [
+              { id: 'yes', title: 'SÍ ✅' },
+              { id: 'no', title: 'NO ❌' }
+            ]);
+          }
+        } else {
+          await supabase.from('registration_states').update({
+            step: 'awaiting_new_product_details',
+            metadata: { productName, qty }
+          }).eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `✨ *¡Nuevo Producto!* ✨\n\nNo encontré "${productName}" en tu inventario.\n\nPor favor, dime:\n1. ¿Cuánto te costó?\n2. ¿A cuánto lo venderás?\n\n(Ejemplo: 12 y 20)`);
+        }
+      }
 
       // ESTADO: Costo de Producto
       else if (step === 'awaiting_product_cost') {

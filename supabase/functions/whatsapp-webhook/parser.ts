@@ -162,6 +162,25 @@ export async function executeCommand(
     }
   }
 
+  // 3.1 PARTIAL RESTOCK (Guided flow)
+  if (lowerMsg === 'surtido' || lowerMsg === 'resurtir' || lowerMsg === 'comprar') {
+    return {
+      responseText: "¿De qué producto te llegó mercancía?",
+      nextStep: 'awaiting_restock_name_guided'
+    };
+  }
+
+  if (lowerMsg.startsWith('surtido ')) {
+    const productName = cleanMsg.slice(8).replace(/^[:\s]+/, '').trim();
+    if (productName) {
+      return {
+        responseText: `¡Perfecto! ¿Cuántas unidades de *${productName}* te llegaron?`,
+        nextStep: 'awaiting_restock_qty_guided',
+        metadata: { productName }
+      };
+    }
+  }
+
   // 4. BULK SALE SCANNER (Detects patterns like "2 cocas 1 gansito")
   // Regex looks for [Number] [Text] followed by another [Number] or end of string.
   const bulkRegex = /(\d+)\s+([a-zA-Z\xC0-\xFF\s]+?)(?=\s+\d+|\s*$)/g;
