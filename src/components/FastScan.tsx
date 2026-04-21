@@ -80,6 +80,11 @@ export default function FastScan() {
   const [debugError, setDebugError] = useState<string | null>(null);
   const [cameraIndex, setCameraIndex] = useState(0);
   const [availableDevices, setAvailableDevices] = useState<any[]>([]);
+  
+  // Refs para lógica de "Mover para resetar"
+  const consecutiveEmptyFrames = useRef(0);
+  const isLocked = useRef(false);
+  const lastBarcode = useRef<string | null>(null);
 
   useEffect(() => {
     if (!token || !storeId) return;
@@ -109,20 +114,28 @@ export default function FastScan() {
         const devices = await Html5Qrcode.getCameras();
         setAvailableDevices(devices);
         
-        // Estrategia: Intentar 'environment' primero por ser lo más estándar
+        const onFrameError = () => {
+          // Esta función se llama cada vez que no se encuentra un código en el frame
+          consecutiveEmptyFrames.current++;
+          
+          // Si vemos ~20 frames (~1 segundo aprox) sin nada, liberamos el bloqueo.
+          // Esto detecta que el usuario "quitó" el teléfono del producto.
+          if (consecutiveEmptyFrames.current > 20) {
+            isLocked.current = false;
+          }
+        };
+
         try {
           await scannerRef.current.start(
             { facingMode: "environment" }, 
             { ...config, videoConstraints: { width: { ideal: 1280 }, height: { ideal: 720 } } },
             (result) => handleScan(result),
-            () => {} 
+            onFrameError
           );
           setIsScannerReady(true);
           setError(null);
         } catch (e) {
-          console.warn("Manual selection fallback...");
           if (devices && devices.length > 0) {
-            // Filtrar y buscar la trasera
             const backCameras = devices.filter(d => 
               !d.label.toLowerCase().includes('front') && 
               !d.label.toLowerCase().includes('user') &&
@@ -136,7 +149,7 @@ export default function FastScan() {
               targetDevice.id,
               config,
               (result) => handleScan(result),
-              () => {}
+              onFrameError
             );
             setIsScannerReady(true);
           }
@@ -158,14 +171,16 @@ export default function FastScan() {
   }, [token, storeId]);
 
   const handleScan = async (barcode: string) => {
-    if (!storeId || isProcessing) return;
+    // Si el sistema está bloqueado por un escaneo previo, ignorar
+    if (!storeId || isProcessing || isLocked.current) return;
     
-    // Bloqueo instantáneo y feedback visual
+    // Bloqueamos inmediatamente
+    isLocked.current = true;
+    consecutiveEmptyFrames.current = 0; // Reseteamos contador al detectar algo
+    
     setIsProcessing(true);
     setIsFlashActive(true);
-    playBeep('success'); // Beep inmediato para confirmación auditiva
-    
-    // El flash dura poco, pero el bloqueo (isProcessing) durará más
+    playBeep('success');
     setTimeout(() => setIsFlashActive(false), 500);
 
     try {
@@ -186,18 +201,16 @@ export default function FastScan() {
           setIsCosterVisible(false);
         }
       } else {
-        // Producto nuevo detectado
         setLastScanned({ barcode, isNew: true });
         setShowNewProductModal(true);
       }
     } catch (err) {
       console.error("Scan error:", err);
     } finally {
-      // Pausa de 3 segundos forzada para evitar el "multi-escaneo" accidental.
-      // Esto obliga a un ritmo de "uno por uno" como pidió el usuario.
+      // Pequeña pausa técnica, pero el bloqueo real lo dará "quitar la cámara" del producto
       setTimeout(() => {
         setIsProcessing(false);
-      }, 3000);
+      }, 500);
     }
   };
 
