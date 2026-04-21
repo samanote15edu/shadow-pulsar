@@ -87,15 +87,14 @@ export default function FastScan() {
         }
 
         const config = {
-          fps: 30, // Más frames para mejor enfoque
+          fps: 25,
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-            const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-            const qrboxSize = Math.floor(minEdgeSize * 0.7);
-            return { width: qrboxSize, height: qrboxSize };
+             const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+             const qrboxSize = Math.floor(minEdgeSize * 0.7);
+             return { width: qrboxSize, height: qrboxSize };
           },
-          aspectRatio: 1.0,
           experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true // Ultra-rápido en iPhones modernos
+            useBarCodeDetectorIfSupported: true
           },
           formatsToSupport: [
             Html5QrcodeSupportedFormats.EAN_13, 
@@ -106,21 +105,17 @@ export default function FastScan() {
           ],
         };
 
-        const constraints = {
-          facingMode: "environment",
-          width: { min: 640, ideal: 1280, max: 1920 },
-          height: { min: 480, ideal: 720, max: 1080 }
-        };
-
         try {
+          // Intento 1: Cámara trasera con resolución ideal
           await scannerRef.current.start(
-            constraints, 
+            { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }, 
             config, 
             (result) => handleScan(result),
             () => {} 
           );
         } catch (e) {
-          console.warn("Fallback to default constraints...");
+          console.warn("Retrying with minimal constraints...");
+          // Intento 2: Fallback total a cualquier cámara disponible
           await scannerRef.current.start(
             { facingMode: "environment" }, 
             config, 
@@ -133,7 +128,7 @@ export default function FastScan() {
         setError(null);
       } catch (err) {
         console.error("Critical camera error:", err);
-        setError("Error al iniciar cámara. Asegúrate de dar permisos y recargar.");
+        setError("La cámara no responde. Si el problema persiste, toca los 3 puntos abajo y selecciona 'Abrir en Safari'.");
       }
     };
 
