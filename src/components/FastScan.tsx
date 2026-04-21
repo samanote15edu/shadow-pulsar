@@ -87,8 +87,16 @@ export default function FastScan() {
         }
 
         const config = {
-          fps: 20,
-          qrbox: { width: 280, height: 280 },
+          fps: 30, // Más frames para mejor enfoque
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+            const qrboxSize = Math.floor(minEdgeSize * 0.7);
+            return { width: qrboxSize, height: qrboxSize };
+          },
+          aspectRatio: 1.0,
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true // Ultra-rápido en iPhones modernos
+          },
           formatsToSupport: [
             Html5QrcodeSupportedFormats.EAN_13, 
             Html5QrcodeSupportedFormats.EAN_8, 
@@ -98,19 +106,23 @@ export default function FastScan() {
           ],
         };
 
+        const constraints = {
+          facingMode: "environment",
+          width: { min: 640, ideal: 1280, max: 1920 },
+          height: { min: 480, ideal: 720, max: 1080 }
+        };
+
         try {
-          // Intento 1: Cámara trasera profesional (Environment)
           await scannerRef.current.start(
-            { facingMode: "environment" }, 
+            constraints, 
             config, 
             (result) => handleScan(result),
             () => {} 
           );
         } catch (e) {
-          console.warn("Retrying with default camera...");
-          // Intento 2: Cámara por defecto si la trasera específica falla
+          console.warn("Fallback to default constraints...");
           await scannerRef.current.start(
-            { facingMode: "user" }, // Fallback a frontal o cualquiera disponible
+            { facingMode: "environment" }, 
             config, 
             (result) => handleScan(result),
             () => {} 
@@ -121,7 +133,7 @@ export default function FastScan() {
         setError(null);
       } catch (err) {
         console.error("Critical camera error:", err);
-        setError("Error al iniciar cámara. Por favor, asegúrate de dar permisos y recargar la página.");
+        setError("Error al iniciar cámara. Asegúrate de dar permisos y recargar.");
       }
     };
 
