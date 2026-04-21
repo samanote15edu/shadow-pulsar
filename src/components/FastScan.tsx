@@ -334,21 +334,10 @@ export default function FastScan() {
     }
   };
 
-  if (error && !storeId) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center p-6 text-center">
-        <div className="bg-zinc-900 border border-red-500/50 p-8 rounded-3xl max-w-sm space-y-4">
-          <AlertCircle className="w-16 h-16 text-red-500 mx-auto" />
-          <h1 className="text-xl font-bold text-white">Error de Acceso</h1>
-          <p className="text-zinc-400">{error}</p>
-        </div>
-      </div>
-    );
-  }
-
+  // Se elimina el retorno temprano de error para mantener la estabilidad del DOM
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">
-      {/* Header Siempre Visible */}
+      {/* Header Fijo y Persistente */}
       <header className="p-4 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between sticky top-0 z-50">
         <button onClick={() => navigate(-1)} className="p-2 hover:bg-zinc-900 rounded-full transition-colors">
           <ArrowLeft className="w-6 h-6" />
@@ -372,174 +361,188 @@ export default function FastScan() {
 
       <main className="flex-1 overflow-y-auto pb-40">
         <div className="p-4 space-y-6">
-          {/* Sección de cámara robusta */}
-          <div className="relative max-w-sm mx-auto">
-            <div 
-              id="reader" 
-              className={`overflow-hidden rounded-3xl border-4 transition-all duration-300 relative aspect-square bg-zinc-950 flex flex-col items-center justify-center ${isFlashActive ? 'animate-scan-success border-green-500' : 'border-zinc-800'}`}
-            >
-              {!isScannerReady && !error && (
-                <div className="flex flex-col items-center gap-3 text-zinc-500">
-                  <div className="w-10 h-10 border-4 border-zinc-700 border-t-zinc-400 rounded-full animate-spin"></div>
-                  <span className="text-sm font-bold">Iniciando cámara...</span>
-                </div>
-              )}
+          {/* Cámara Section - Optimización iOS/WhatsApp */}
+          {!storeId && !error ? (
+             <div className="flex flex-col items-center justify-center py-20 text-zinc-500 gap-4">
+                <div className="w-12 h-12 border-4 border-zinc-800 border-t-white rounded-full animate-spin"></div>
+                <p className="font-bold">Verificando acceso...</p>
+             </div>
+          ) : (
+            <div className="relative max-w-sm mx-auto">
+              {/* Contenedor del Lector con Altura Forzada */}
+              <div 
+                className={`overflow-hidden rounded-3xl border-4 transition-all duration-300 relative min-h-[300px] w-full aspect-square bg-zinc-950 flex flex-col items-center justify-center ${isFlashActive ? 'animate-scan-success border-green-500' : 'border-zinc-800'}`}
+              >
+                {/* El ID 'reader' debe estar siempre presente para que la librería no falle */}
+                <div id="reader" className="absolute inset-0 w-full h-full z-0" />
 
-              {error && (
-                <div className="p-6 text-center space-y-3 z-50">
-                   <AlertCircle className="w-12 h-12 text-red-500 mx-auto" />
-                   <p className="text-sm font-bold text-red-400 leading-tight">{error}</p>
-                   <button 
-                     onClick={() => window.location.reload()} 
-                     className="px-6 py-2 bg-zinc-800 rounded-full text-xs font-black hover:bg-zinc-700"
-                   >
-                     REINTENTAR
-                   </button>
-                </div>
-              )}
-
-              {/* Animación Láser */}
-              {isScannerReady && !isProcessing && (
-                <div className="animate-laser" />
-              )}
-              
-              {/* Overlay de procesamiento */}
-              {isProcessing && (
-                <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center z-30 backdrop-blur-[2px]">
-                  <div className="w-12 h-12 border-4 border-white/30 border-t-green-500 rounded-full animate-spin mb-2"></div>
-                  <span className="text-xs font-bold text-white tracking-widest uppercase">Escaneando...</span>
-                </div>
-              )}
-
-              {/* Guía Visual (Oculta si hay error) */}
-              {isScannerReady && !error && (
-                <>
-                  <div className="absolute inset-0 z-10 border-[60px] border-black/40 pointer-events-none"></div>
-                  <div className="absolute inset-[60px] z-20 border-2 border-white/20 rounded-xl pointer-events-none">
-                     <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-green-500"></div>
-                     <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-green-500"></div>
-                     <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-green-500"></div>
-                     <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-green-500"></div>
+                {!isScannerReady && !error && (
+                  <div className="relative z-10 flex flex-col items-center gap-3 text-zinc-500">
+                    <div className="w-10 h-10 border-4 border-zinc-700 border-t-zinc-400 rounded-full animate-spin"></div>
+                    <span className="text-sm font-bold">Solicitando cámara...</span>
                   </div>
-                </>
-              )}
-            </div>
-          </div>
+                )}
 
-          {/* Área de Trabajo dinámico */}
-          {mode === 'sale' ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between px-2">
-                <h2 className="text-xl font-bold flex items-center gap-2">
-                  <ShoppingBag className="w-5 h-5 text-zinc-400" />
-                  Carrito ({cart.length})
-                </h2>
-                {cart.length > 0 && (
-                  <button onClick={() => setCart([])} className="text-sm text-red-400 font-bold">Limpiar</button>
+                {error && (
+                  <div className="relative z-50 p-6 text-center space-y-4">
+                     <AlertCircle className="w-12 h-12 text-red-500 mx-auto" />
+                     <p className="text-sm font-bold text-red-400 leading-tight">{error}</p>
+                     <button 
+                       onClick={() => window.location.reload()} 
+                       className="w-full py-4 bg-zinc-800 rounded-2xl text-sm font-black hover:bg-zinc-700"
+                     >
+                       REINTENTAR
+                     </button>
+                  </div>
+                )}
+
+                {/* Feedback Visual: Animación Láser (Solo si está listo) */}
+                {isScannerReady && !isProcessing && !error && (
+                  <div className="animate-laser z-20" />
+                )}
+                
+                {/* Feedback Visual: Procesamiento */}
+                {isProcessing && (
+                  <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center z-30 backdrop-blur-[2px]">
+                    <div className="w-10 h-10 border-4 border-white/30 border-t-green-500 rounded-full animate-spin mb-2"></div>
+                    <span className="text-[10px] font-bold text-white tracking-widest uppercase">Procesando...</span>
+                  </div>
+                )}
+
+                {/* Guía Visual Corner-Icons */}
+                {isScannerReady && !error && (
+                  <>
+                    <div className="absolute inset-0 z-10 border-[60px] border-black/50 pointer-events-none"></div>
+                    <div className="absolute inset-[60px] z-20 border-2 border-white/10 rounded-xl pointer-events-none">
+                       <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-green-500/50"></div>
+                       <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-green-500/50"></div>
+                       <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-green-500/50"></div>
+                       <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-green-500/50"></div>
+                    </div>
+                  </>
                 )}
               </div>
-
-              {cart.length === 0 ? (
-                <div className="py-12 text-center text-zinc-500 border-2 border-dashed border-zinc-800 rounded-3xl">
-                  <ShoppingBag className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                  <p>Escanea un producto para empezar</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {cart.map(item => (
-                    <div key={item.id} className="p-4 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center gap-4">
-                      <div className="flex-1">
-                        <p className="font-bold line-clamp-1">{item.name}</p>
-                        <p className="text-zinc-400 text-sm">${item.price} c/u</p>
-                      </div>
-                      <div className="flex items-center bg-black rounded-xl p-1 gap-3">
-                        <button onClick={() => updateQty(item.id, -1)} className="p-1 hover:text-red-400"><Minus className="w-5 h-5" /></button>
-                        <span className="font-black text-lg min-w-[20px] text-center">{item.qty}</span>
-                        <button onClick={() => updateQty(item.id, 1)} className="p-1 hover:text-green-400"><Plus className="w-5 h-5" /></button>
-                      </div>
-                      <button onClick={() => removeItem(item.id)} className="p-2 text-zinc-600 hover:text-red-500"><Trash2 className="w-5 h-5" /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
-          ) : (
+          )}
+
+          {/* Área de Trabajo dinâmica (Carrito o Registro) */}
+          {storeId && (
             <div className="space-y-4">
-               <h2 className="text-xl font-bold flex items-center gap-2 px-2">
-                  <Package className="w-5 h-5 text-zinc-400" />
-                  Último Escaneado
-                </h2>
-                
-                {lastScanned ? (
-                  <div className="p-6 bg-zinc-900 border-2 border-zinc-700 rounded-3xl space-y-6">
-                    {lastScanned.isNew ? (
-                      <div className="text-center space-y-4 py-4">
-                        <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto" />
-                        <div>
-                          <p className="text-xl font-bold">Producto Nuevo</p>
-                          <p className="text-zinc-400 text-sm">Código: {lastScanned.barcode}</p>
-                        </div>
-                        <button 
-                          onClick={() => setShowNewProductModal(true)}
-                          className="w-full py-4 bg-yellow-500 text-black font-black rounded-2xl active:scale-95 transition-all"
-                        >
-                          REGISTRAR AHORA
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <div>
-                          <p className="text-2xl font-black">{lastScanned.name}</p>
-                          <p className="text-zinc-400">Stock actual: {lastScanned.current_stock}</p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="p-4 bg-zinc-950 rounded-2xl">
-                            <p className="text-xs text-zinc-500 uppercase font-bold mb-1">Precio Venta</p>
-                            <p className="text-2xl font-black">${lastScanned.base_price}</p>
-                          </div>
-                          <div className="p-4 bg-zinc-950 rounded-2xl relative">
-                            <p className="text-xs text-zinc-500 uppercase font-bold mb-1">Costo Anterior</p>
-                            <div className="flex items-center justify-between">
-                              <p className="text-2xl font-black">
-                                {isCosterVisible ? `$${lastScanned.last_cost_price || 0}` : '••••'}
-                              </p>
-                              <button 
-                                onClick={() => setIsCosterVisible(!isCosterVisible)}
-                                className="p-1 text-zinc-600"
-                              >
-                                {isCosterVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-3">
-                          <label className="block text-sm font-bold text-zinc-400">¿Cuántos llegaron?</label>
-                          <input 
-                            type="number" 
-                            placeholder="Cantidad..."
-                            value={restockQty}
-                            onChange={(e) => setRestockQty(e.target.value)}
-                            className="w-full bg-black border border-zinc-800 p-4 rounded-2xl text-2xl font-bold focus:border-white outline-none transition-all"
-                          />
-                          <button 
-                            onClick={processRestock}
-                            disabled={!restockQty || isProcessing}
-                            className="w-full py-4 bg-white text-black font-black text-lg rounded-2xl flex items-center justify-center gap-2 disabled:opacity-50"
-                          >
-                            <Check className="w-6 h-6" /> {isProcessing ? 'Procesando...' : 'REGISTRAR ENTRADA'}
-                          </button>
-                        </div>
-                      </>
+              {mode === 'sale' ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-2">
+                    <h2 className="text-xl font-bold flex items-center gap-2">
+                      <ShoppingBag className="w-5 h-5 text-zinc-400" />
+                      Carrito ({cart.length})
+                    </h2>
+                    {cart.length > 0 && (
+                      <button onClick={() => setCart([])} className="text-sm text-red-400 font-bold">Limpiar</button>
                     )}
                   </div>
-                ) : (
-                  <div className="py-12 text-center text-zinc-500 border-2 border-dashed border-zinc-800 rounded-3xl">
-                    <Package className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                    <p>Escanea un producto para surtirlo</p>
-                  </div>
-                )}
+
+                  {cart.length === 0 ? (
+                    <div className="py-12 text-center text-zinc-500 border-2 border-dashed border-zinc-800 rounded-3xl">
+                      <ShoppingBag className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                      <p>Escanea un producto para empezar</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {cart.map(item => (
+                        <div key={item.id} className="p-4 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center gap-4 animate-in slide-in-from-right duration-300">
+                          <div className="flex-1">
+                            <p className="font-bold line-clamp-1">{item.name}</p>
+                            <p className="text-zinc-400 text-sm">${item.price} c/u</p>
+                          </div>
+                          <div className="flex items-center bg-black rounded-xl p-1 gap-3">
+                            <button onClick={() => updateQty(item.id, -1)} className="p-1 hover:text-red-400"><Minus className="w-5 h-5" /></button>
+                            <span className="font-black text-lg min-w-[20px] text-center">{item.qty}</span>
+                            <button onClick={() => updateQty(item.id, 1)} className="p-1 hover:text-green-400"><Plus className="w-5 h-5" /></button>
+                          </div>
+                          <button onClick={() => removeItem(item.id)} className="p-2 text-zinc-600 hover:text-red-500"><Trash2 className="w-5 h-5" /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                   <h2 className="text-xl font-bold flex items-center gap-2 px-2">
+                      <Package className="w-5 h-5 text-zinc-400" />
+                      Último Escaneado
+                    </h2>
+                    
+                    {lastScanned ? (
+                      <div className="p-6 bg-zinc-900 border-2 border-zinc-700 rounded-3xl space-y-6 animate-in zoom-in duration-300">
+                        {lastScanned.isNew ? (
+                          <div className="text-center space-y-4 py-4">
+                            <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto" />
+                            <div>
+                              <p className="text-xl font-bold">Producto Nuevo</p>
+                              <p className="text-zinc-400 text-sm">Código: {lastScanned.barcode}</p>
+                            </div>
+                            <button 
+                              onClick={() => setShowNewProductModal(true)}
+                              className="w-full py-4 bg-yellow-500 text-black font-black rounded-2xl active:scale-95 transition-all"
+                            >
+                              REGISTRAR AHORA
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div>
+                              <p className="text-2xl font-black">{lastScanned.name}</p>
+                              <p className="text-zinc-400">Stock actual: {lastScanned.current_stock}</p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="p-4 bg-zinc-950 rounded-2xl">
+                                <p className="text-xs text-zinc-500 uppercase font-bold mb-1">Precio Venta</p>
+                                <p className="text-2xl font-black">${lastScanned.base_price}</p>
+                              </div>
+                              <div className="p-4 bg-zinc-950 rounded-2xl relative">
+                                <p className="text-xs text-zinc-500 uppercase font-bold mb-1">Costo Anterior</p>
+                                <div className="flex items-center justify-between">
+                                  <p className="text-2xl font-black">
+                                    {isCosterVisible ? `$${lastScanned.last_cost_price || 0}` : '••••'}
+                                  </p>
+                                  <button 
+                                    onClick={() => setIsCosterVisible(!isCosterVisible)}
+                                    className="p-1 text-zinc-600"
+                                  >
+                                    {isCosterVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="space-y-3">
+                              <label className="block text-sm font-bold text-zinc-400">¿Cuántos llegaron?</label>
+                              <input 
+                                type="number" 
+                                placeholder="Cantidad..."
+                                value={restockQty}
+                                onChange={(e) => setRestockQty(e.target.value)}
+                                className="w-full bg-black border border-zinc-800 p-4 rounded-2xl text-2xl font-bold focus:border-white outline-none transition-all"
+                              />
+                              <button 
+                                onClick={processRestock}
+                                disabled={!restockQty || isProcessing}
+                                className="w-full py-4 bg-white text-black font-black text-lg rounded-2xl flex items-center justify-center gap-2 disabled:opacity-50"
+                              >
+                                <Check className="w-6 h-6" /> {isProcessing ? 'Procesando...' : 'REGISTRAR ENTRADA'}
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="py-12 text-center text-zinc-500 border-2 border-dashed border-zinc-800 rounded-3xl">
+                        <Package className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                        <p>Escanea un producto para surtirlo</p>
+                      </div>
+                    )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -547,7 +550,7 @@ export default function FastScan() {
 
       {/* Footer Acciones de Cierre */}
       {mode === 'sale' && cart.length > 0 && (
-        <footer className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black to-transparent">
+        <footer className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black to-transparent z-[80]">
           <div className="max-w-md mx-auto p-6 bg-white text-black rounded-3xl shadow-2xl space-y-4">
             <div className="flex justify-between items-end">
               <span className="text-sm font-bold uppercase opacity-60">Total a pagar</span>
