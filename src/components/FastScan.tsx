@@ -171,25 +171,22 @@ export default function FastScan() {
   }, [token, storeId]);
 
   const handleScan = async (barcode: string) => {
-    // 1. Bloqueo de seguridad: Si estamos procesando o el código es el MISMO que el anterior y no se ha reseteado
+    // 1. Validaciones previas
     if (!storeId || isProcessing) return;
-    
-    // Si el código es igual al último y el sistema sigue bloqueado por cercanía
     if (barcode === lastBarcode.current && isLocked.current) return;
     
-    // 2. Iniciamos procesamiento
+    // 2. Bloqueo inmediato para este código
     isLocked.current = true;
     lastBarcode.current = barcode;
     consecutiveEmptyFrames.current = 0; 
     
+    // Feedback visual ultrarrápido (el flash verde es suficiente)
     setIsProcessing(true);
     setIsFlashActive(true);
     playBeep('success');
-    setTimeout(() => setIsFlashActive(false), 500);
+    setTimeout(() => setIsFlashActive(false), 400);
 
-    // Timeout de seguridad: Si internet falla, liberar el escáner en 5s pase lo que pase
-    const safetyTimeout = setTimeout(() => setIsProcessing(false), 5000);
-
+    // No ponemos un timeout largo para 'isProcessing' aquí, dejamos que el 'finally' lo limpie rápido
     try {
       const { data, error } = await supabase
         .from('products')
@@ -214,11 +211,10 @@ export default function FastScan() {
     } catch (err) {
       console.error("Scan error:", err);
     } finally {
-      clearTimeout(safetyTimeout);
-      // Pausa corta de 800ms para permitir escanear OTRO producto distinto rápido
+      // Liberamos el estado de 'procesando' rápido (300ms) para que el láser vuelva
       setTimeout(() => {
         setIsProcessing(false);
-      }, 800);
+      }, 300);
     }
   };
 
