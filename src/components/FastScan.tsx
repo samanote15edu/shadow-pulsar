@@ -89,9 +89,16 @@ export default function FastScan() {
         }
 
         const config = {
-          fps: 20,
-          qrbox: { width: 250, height: 250 },
+          fps: 25,
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+             const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+             const qrboxSize = Math.floor(minEdgeSize * 0.8);
+             return { width: qrboxSize, height: qrboxSize };
+          },
           aspectRatio: 1.0,
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true // Ahora que la cámara abre, usamos la potencia de Apple
+          },
           formatsToSupport: [
             Html5QrcodeSupportedFormats.EAN_13, 
             Html5QrcodeSupportedFormats.EAN_8, 
@@ -101,27 +108,25 @@ export default function FastScan() {
           ],
         };
 
-        // Método ultra-compatible: Listar cámaras primero
         const devices = await Html5Qrcode.getCameras();
         
         if (devices && devices.length > 0) {
-          // Buscar cámara trasera por etiquetas comunes
           const backCamera = devices.find(d => 
             d.label.toLowerCase().includes('back') || 
             d.label.toLowerCase().includes('trasera') ||
             d.label.toLowerCase().includes('environment')
-          ) || devices[devices.length - 1]; // Fallback a la última cámara (suele ser la trasera)
+          ) || devices[devices.length - 1];
 
+          // Forzamos resolución HD para leer las barras finas
           await scannerRef.current.start(
-            backCamera.id, 
-            config, 
+            { deviceId: { exact: backCamera.id } },
+            { ...config, videoConstraints: { width: { ideal: 1280 }, height: { ideal: 720 } } },
             (result) => handleScan(result),
             () => {} 
           );
           setIsScannerReady(true);
           setError(null);
         } else {
-           // Si no hay lista, intentar modo genérico
            await scannerRef.current.start(
              { facingMode: "environment" },
              config,
