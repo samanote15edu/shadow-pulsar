@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { supabase } from '../lib/supabase';
-import { ShoppingBag, Package, ArrowLeft, Plus, Minus, Trash2, Check, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { ShoppingBag, Package, ArrowLeft, Plus, Minus, Trash2, Check, Eye, EyeOff, AlertCircle, Camera } from 'lucide-react';
 
 type ScanMode = 'sale' | 'inventory';
 
@@ -18,7 +18,6 @@ export default function FastScan() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
   
-  // Detectar modo inicial por URL (?m=inventory)
   const queryParams = new URLSearchParams(window.location.search);
   const initialMode = (queryParams.get('m') === 'inventory' ? 'inventory' : 'sale') as ScanMode;
 
@@ -28,11 +27,12 @@ export default function FastScan() {
   const [lastScanned, setLastScanned] = useState<any | null>(null);
   const [isCosterVisible, setIsCosterVisible] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isFlashActive, setIsFlashActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isScannerReady, setIsScannerReady] = useState(false);
   
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  // Audio Context for Beep
   const playBeep = (type: 'success' | 'error' = 'success') => {
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -80,30 +80,44 @@ export default function FastScan() {
   useEffect(() => {
     if (!token || !storeId) return;
 
-    if (!scannerRef.current) {
-      scannerRef.current = new Html5QrcodeScanner(
-        'reader',
-        {
-          fps: 15,
-          qrbox: { width: 250, height: 250 },
+    const startScanner = async () => {
+      try {
+        if (!scannerRef.current) {
+          scannerRef.current = new Html5Qrcode('reader');
+        }
+
+        const config = {
+          fps: 20,
+          qrbox: { width: 280, height: 280 },
           formatsToSupport: [
             Html5QrcodeSupportedFormats.EAN_13, 
             Html5QrcodeSupportedFormats.EAN_8, 
-            Html5QrcodeSupportedFormats.CODE_128
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E
           ],
-        },
-        /* verbose= */ false
-      );
+        };
 
-      scannerRef.current.render((resultString) => {
-        handleScan(resultString);
-      }, () => {});
-    }
+        await scannerRef.current.start(
+          { facingMode: "environment" }, 
+          config, 
+          (result) => handleScan(result),
+          () => {} // Ignorar errores de escaneo fallido por frame
+        );
+        setIsScannerReady(true);
+      } catch (err) {
+        console.error("Camera start error:", err);
+        setError("No se pudo acceder a la cámara trasera. Asegúrate de dar permisos.");
+      }
+    };
+
+    startScanner();
 
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear();
-        scannerRef.current = null;
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().then(() => {
+          scannerRef.current?.clear();
+        }).catch(err => console.error(err));
       }
     };
   }, [token, storeId]);
@@ -112,6 +126,10 @@ export default function FastScan() {
     if (!storeId || isProcessing) return;
     
     setIsProcessing(true);
+    // Señal visual de éxito (Flash verde)
+    setIsFlashActive(true);
+    setTimeout(() => setIsFlashActive(false), 600);
+
     const { data, error } = await supabase
       .from('products')
       .select('*')
@@ -138,8 +156,8 @@ export default function FastScan() {
       setLastScanned({ barcode, isNew: true });
     }
     
-    // Resume scanning after a short delay
-    setTimeout(() => setIsProcessing(false), 2000);
+    // Pausa corta para evitar múltiples escaneos del mismo objeto
+    setTimeout(() => setIsProcessing(false), 2500);
   };
 
   const addToCart = (product: any, barcode: string) => {
@@ -182,7 +200,6 @@ export default function FastScan() {
     
     try {
       const currentTotal = total;
-      // 1. Registrar cada item en stock y transacciones
       const promises = cart.map(async (item) => {
         await supabase.rpc('increment_stock', { row_id: item.id, amount: -item.qty });
         return supabase.from('transactions').insert({
@@ -342,16 +359,33 @@ export default function FastScan() {
       <main className="flex-1 overflow-y-auto pb-40">
         <div className="p-4 space-y-6">
           {/* Cámara Section */}
-          <div className="relative group">
-            <div id="reader" className="overflow-hidden rounded-3xl border-2 border-zinc-800 bg-zinc-900 overflow-hidden shadow-2xl">
+          <div className="relative group max-w-sm mx-auto">
+            <div 
+              id="reader" 
+              className={`overflow-hidden rounded-3xl border-4 transition-all duration-300 relative aspect-square bg-zinc-950 ${isFlashActive ? 'animate-scan-success border-green-500' : 'border-zinc-800'}`}
+            >
+              {/* Animación Láser */}
+              {isScannerReady && !isProcessing && (
+                <div className="animate-laser" />
+              )}
+              
               {/* Overlay de procesamiento */}
               {isProcessing && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10">
-                  <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
+                <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center z-30 backdrop-blur-[2px]">
+                  <div className="w-12 h-12 border-4 border-white/30 border-t-green-500 rounded-full animate-spin mb-2"></div>
+                  <span className="text-xs font-bold text-white tracking-widest uppercase">Escaneando...</span>
                 </div>
               )}
+
+              {/* Guía Visual */}
+              <div className="absolute inset-0 z-10 border-[60px] border-black/40 pointer-events-none"></div>
+              <div className="absolute inset-[60px] z-20 border-2 border-white/20 rounded-xl pointer-events-none">
+                 <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-green-500"></div>
+                 <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-green-500"></div>
+                 <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-green-500"></div>
+                 <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-green-500"></div>
+              </div>
             </div>
-            <div className="absolute inset-0 pointer-events-none border-[40px] border-black/20 rounded-3xl"></div>
           </div>
 
           {/* Área de Trabajo dinámico */}
