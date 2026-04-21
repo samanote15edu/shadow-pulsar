@@ -98,16 +98,30 @@ export default function FastScan() {
           ],
         };
 
-        await scannerRef.current.start(
-          { facingMode: "environment" }, 
-          config, 
-          (result) => handleScan(result),
-          () => {} // Ignorar errores de escaneo fallido por frame
-        );
+        try {
+          // Intento 1: Cámara trasera profesional (Environment)
+          await scannerRef.current.start(
+            { facingMode: "environment" }, 
+            config, 
+            (result) => handleScan(result),
+            () => {} 
+          );
+        } catch (e) {
+          console.warn("Retrying with default camera...");
+          // Intento 2: Cámara por defecto si la trasera específica falla
+          await scannerRef.current.start(
+            { facingMode: "user" }, // Fallback a frontal o cualquiera disponible
+            config, 
+            (result) => handleScan(result),
+            () => {} 
+          );
+        }
+        
         setIsScannerReady(true);
+        setError(null);
       } catch (err) {
-        console.error("Camera start error:", err);
-        setError("No se pudo acceder a la cámara trasera. Asegúrate de dar permisos.");
+        console.error("Critical camera error:", err);
+        setError("Error al iniciar cámara. Por favor, asegúrate de dar permisos y recargar la página.");
       }
     };
 
@@ -320,7 +334,7 @@ export default function FastScan() {
     }
   };
 
-  if (error) {
+  if (error && !storeId) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center p-6 text-center">
         <div className="bg-zinc-900 border border-red-500/50 p-8 rounded-3xl max-w-sm space-y-4">
@@ -334,7 +348,7 @@ export default function FastScan() {
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">
-      {/* Header Fijo */}
+      {/* Header Siempre Visible */}
       <header className="p-4 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between sticky top-0 z-50">
         <button onClick={() => navigate(-1)} className="p-2 hover:bg-zinc-900 rounded-full transition-colors">
           <ArrowLeft className="w-6 h-6" />
@@ -358,12 +372,32 @@ export default function FastScan() {
 
       <main className="flex-1 overflow-y-auto pb-40">
         <div className="p-4 space-y-6">
-          {/* Cámara Section */}
-          <div className="relative group max-w-sm mx-auto">
+          {/* Sección de cámara robusta */}
+          <div className="relative max-w-sm mx-auto">
             <div 
               id="reader" 
-              className={`overflow-hidden rounded-3xl border-4 transition-all duration-300 relative aspect-square bg-zinc-950 ${isFlashActive ? 'animate-scan-success border-green-500' : 'border-zinc-800'}`}
+              className={`overflow-hidden rounded-3xl border-4 transition-all duration-300 relative aspect-square bg-zinc-950 flex flex-col items-center justify-center ${isFlashActive ? 'animate-scan-success border-green-500' : 'border-zinc-800'}`}
             >
+              {!isScannerReady && !error && (
+                <div className="flex flex-col items-center gap-3 text-zinc-500">
+                  <div className="w-10 h-10 border-4 border-zinc-700 border-t-zinc-400 rounded-full animate-spin"></div>
+                  <span className="text-sm font-bold">Iniciando cámara...</span>
+                </div>
+              )}
+
+              {error && (
+                <div className="p-6 text-center space-y-3 z-50">
+                   <AlertCircle className="w-12 h-12 text-red-500 mx-auto" />
+                   <p className="text-sm font-bold text-red-400 leading-tight">{error}</p>
+                   <button 
+                     onClick={() => window.location.reload()} 
+                     className="px-6 py-2 bg-zinc-800 rounded-full text-xs font-black hover:bg-zinc-700"
+                   >
+                     REINTENTAR
+                   </button>
+                </div>
+              )}
+
               {/* Animación Láser */}
               {isScannerReady && !isProcessing && (
                 <div className="animate-laser" />
@@ -377,14 +411,18 @@ export default function FastScan() {
                 </div>
               )}
 
-              {/* Guía Visual */}
-              <div className="absolute inset-0 z-10 border-[60px] border-black/40 pointer-events-none"></div>
-              <div className="absolute inset-[60px] z-20 border-2 border-white/20 rounded-xl pointer-events-none">
-                 <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-green-500"></div>
-                 <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-green-500"></div>
-                 <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-green-500"></div>
-                 <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-green-500"></div>
-              </div>
+              {/* Guía Visual (Oculta si hay error) */}
+              {isScannerReady && !error && (
+                <>
+                  <div className="absolute inset-0 z-10 border-[60px] border-black/40 pointer-events-none"></div>
+                  <div className="absolute inset-[60px] z-20 border-2 border-white/20 rounded-xl pointer-events-none">
+                     <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-green-500"></div>
+                     <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-green-500"></div>
+                     <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-green-500"></div>
+                     <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-green-500"></div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
