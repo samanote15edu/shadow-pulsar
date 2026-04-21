@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { supabase } from '../lib/supabase';
-import { ShoppingBag, Package, ArrowLeft, Plus, Minus, Trash2, Check, Eye, EyeOff, AlertCircle, Camera } from 'lucide-react';
+import { ShoppingBag, Package, ArrowLeft, Plus, Minus, Trash2, Check, Eye, EyeOff, AlertCircle } from 'lucide-react';
 
 type ScanMode = 'sale' | 'inventory';
 
