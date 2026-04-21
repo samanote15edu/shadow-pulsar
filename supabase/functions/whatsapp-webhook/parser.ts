@@ -516,9 +516,21 @@ export async function executeCommand(
   // 10. BARCODE SCANNER
   const scanKeywords = ['escanear', 'lector', 'cámara', 'camara', 'código', 'codigo'];
   if (scanKeywords.includes(lowerMsg)) {
-    const { data: tokenObj } = await supabase.from('report_tokens').insert({ store_id: storeId, access_level: 'admin' }).select().single();
-    const scanLink = `https://yrjjajjmhirwkgldulzl.supabase.co/scan/${tokenObj?.token}`;
-    return { responseText: `📱 *Escáner Activado*\n\nPULSA EL LINK PARA ABRIR LA CÁMARA:\n${scanLink}` };
+    const { data: tokenObj } = await supabase.from('report_tokens').insert({ 
+      store_id: storeId, 
+      access_level: 'admin',
+      expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour
+    }).select().single();
+
+    const baseUrl = `https://shadow-pulsar.vercel.app/scan/${tokenObj?.token}`;
+    
+    let msg = `📱 *Módulo de Escaneo*\n\n`;
+    msg += `Selecciona el modo de uso:\n\n`;
+    msg += `🛍️ *Venta:* \n${baseUrl}\n\n`;
+    msg += `📦 *Surtido:* \n${baseUrl}?m=inventory\n\n`;
+    msg += `_Este link vence en 1 hora._`;
+    
+    return { responseText: msg };
   }
   
   // 14. MULTI-STORE MANAGEMENT (OWNER ONLY)
