@@ -171,17 +171,24 @@ export default function FastScan() {
   }, [token, storeId]);
 
   const handleScan = async (barcode: string) => {
-    // Si el sistema está bloqueado por un escaneo previo, ignorar
-    if (!storeId || isProcessing || isLocked.current) return;
+    // 1. Bloqueo de seguridad: Si estamos procesando o el código es el MISMO que el anterior y no se ha reseteado
+    if (!storeId || isProcessing) return;
     
-    // Bloqueamos inmediatamente
+    // Si el código es igual al último y el sistema sigue bloqueado por cercanía
+    if (barcode === lastBarcode.current && isLocked.current) return;
+    
+    // 2. Iniciamos procesamiento
     isLocked.current = true;
-    consecutiveEmptyFrames.current = 0; // Reseteamos contador al detectar algo
+    lastBarcode.current = barcode;
+    consecutiveEmptyFrames.current = 0; 
     
     setIsProcessing(true);
     setIsFlashActive(true);
     playBeep('success');
     setTimeout(() => setIsFlashActive(false), 500);
+
+    // Timeout de seguridad: Si internet falla, liberar el escáner en 5s pase lo que pase
+    const safetyTimeout = setTimeout(() => setIsProcessing(false), 5000);
 
     try {
       const { data, error } = await supabase
@@ -207,10 +214,11 @@ export default function FastScan() {
     } catch (err) {
       console.error("Scan error:", err);
     } finally {
-      // Pequeña pausa técnica, pero el bloqueo real lo dará "quitar la cámara" del producto
+      clearTimeout(safetyTimeout);
+      // Pausa corta de 800ms para permitir escanear OTRO producto distinto rápido
       setTimeout(() => {
         setIsProcessing(false);
-      }, 500);
+      }, 800);
     }
   };
 
