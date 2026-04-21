@@ -160,39 +160,44 @@ export default function FastScan() {
   const handleScan = async (barcode: string) => {
     if (!storeId || isProcessing) return;
     
+    // Feedback instantáneo: El usuario DEBE saber que se detectó algo
     setIsProcessing(true);
-    // Señal visual de éxito (Flash verde)
     setIsFlashActive(true);
-    setTimeout(() => setIsFlashActive(false), 600);
+    setTimeout(() => setIsFlashActive(false), 500);
 
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('store_id', storeId)
-      .eq('barcode', barcode)
-      .maybeSingle();
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('store_id', storeId)
+        .eq('barcode', barcode)
+        .maybeSingle();
 
-    if (error) {
-       playBeep('error');
-       setIsProcessing(false);
-       return;
-    }
+      if (error) throw error;
 
-    if (data) {
-      playBeep('success');
-      if (mode === 'sale') {
-        addToCart(data, barcode);
+      if (data) {
+        // Encontrado: Beep de éxito
+        playBeep('success');
+        if (mode === 'sale') {
+          addToCart(data, barcode);
+        } else {
+          setLastScanned(data);
+          setIsCosterVisible(false);
+        }
       } else {
-        setLastScanned(data);
-        setIsCosterVisible(false);
+        // Es un producto nuevo: Beep de aviso
+        playBeep('error');
+        setLastScanned({ barcode, isNew: true });
+        // Importante: Mostrar el modal automáticamente si es nuevo, sin importar el modo
+        setShowNewProductModal(true);
       }
-    } else {
+    } catch (err) {
+      console.error("Scan processing error:", err);
       playBeep('error');
-      setLastScanned({ barcode, isNew: true });
+    } finally {
+      // Pausa de seguridad para no escanear lo mismo 20 veces
+      setTimeout(() => setIsProcessing(false), 2000);
     }
-    
-    // Pausa corta para evitar múltiples escaneos del mismo objeto
-    setTimeout(() => setIsProcessing(false), 2500);
   };
 
   const addToCart = (product: any, barcode: string) => {
