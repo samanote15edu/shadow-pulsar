@@ -160,9 +160,12 @@ export default function FastScan() {
   const handleScan = async (barcode: string) => {
     if (!storeId || isProcessing) return;
     
-    // Feedback instantáneo: El usuario DEBE saber que se detectó algo
+    // Bloqueo instantáneo y feedback visual
     setIsProcessing(true);
     setIsFlashActive(true);
+    playBeep('success'); // Beep inmediato para confirmación auditiva
+    
+    // El flash dura poco, pero el bloqueo (isProcessing) durará más
     setTimeout(() => setIsFlashActive(false), 500);
 
     try {
@@ -176,8 +179,6 @@ export default function FastScan() {
       if (error) throw error;
 
       if (data) {
-        // Encontrado: Beep de éxito
-        playBeep('success');
         if (mode === 'sale') {
           addToCart(data, barcode);
         } else {
@@ -185,18 +186,18 @@ export default function FastScan() {
           setIsCosterVisible(false);
         }
       } else {
-        // Es un producto nuevo: Beep de aviso
-        playBeep('error');
+        // Producto nuevo detectado
         setLastScanned({ barcode, isNew: true });
-        // Importante: Mostrar el modal automáticamente si es nuevo, sin importar el modo
         setShowNewProductModal(true);
       }
     } catch (err) {
-      console.error("Scan processing error:", err);
-      playBeep('error');
+      console.error("Scan error:", err);
     } finally {
-      // Pausa de seguridad para no escanear lo mismo 20 veces
-      setTimeout(() => setIsProcessing(false), 2000);
+      // Pausa de 3 segundos forzada para evitar el "multi-escaneo" accidental.
+      // Esto obliga a un ritmo de "uno por uno" como pidió el usuario.
+      setTimeout(() => {
+        setIsProcessing(false);
+      }, 3000);
     }
   };
 
