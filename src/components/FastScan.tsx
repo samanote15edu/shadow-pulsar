@@ -78,6 +78,8 @@ export default function FastScan() {
   }, [token]);
 
   const [debugError, setDebugError] = useState<string | null>(null);
+  const [cameraIndex, setCameraIndex] = useState(0);
+  const [availableDevices, setAvailableDevices] = useState<any[]>([]);
 
   useEffect(() => {
     if (!token || !storeId) return;
@@ -92,53 +94,57 @@ export default function FastScan() {
           fps: 25,
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
              const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-             const qrboxSize = Math.floor(minEdgeSize * 0.8);
+             const qrboxSize = Math.floor(minEdgeSize * 0.82);
              return { width: qrboxSize, height: qrboxSize };
           },
           aspectRatio: 1.0,
-          experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true // Ahora que la cámara abre, usamos la potencia de Apple
-          },
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
           formatsToSupport: [
             Html5QrcodeSupportedFormats.EAN_13, 
-            Html5QrcodeSupportedFormats.EAN_8, 
-            Html5QrcodeSupportedFormats.CODE_128,
             Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.UPC_E
+            Html5QrcodeSupportedFormats.CODE_128
           ],
         };
 
         const devices = await Html5Qrcode.getCameras();
+        setAvailableDevices(devices);
         
-        if (devices && devices.length > 0) {
-          const backCamera = devices.find(d => 
-            d.label.toLowerCase().includes('back') || 
-            d.label.toLowerCase().includes('trasera') ||
-            d.label.toLowerCase().includes('environment')
-          ) || devices[devices.length - 1];
-
-          // Forzamos resolución HD para leer las barras finas
+        // Estrategia: Intentar 'environment' primero por ser lo más estándar
+        try {
           await scannerRef.current.start(
-            { deviceId: { exact: backCamera.id } },
+            { facingMode: "environment" }, 
             { ...config, videoConstraints: { width: { ideal: 1280 }, height: { ideal: 720 } } },
             (result) => handleScan(result),
             () => {} 
           );
           setIsScannerReady(true);
           setError(null);
-        } else {
-           await scannerRef.current.start(
-             { facingMode: "environment" },
-             config,
-             (result) => handleScan(result),
-             () => {}
-           );
-           setIsScannerReady(true);
+        } catch (e) {
+          console.warn("Manual selection fallback...");
+          if (devices && devices.length > 0) {
+            // Filtrar y buscar la trasera
+            const backCameras = devices.filter(d => 
+              !d.label.toLowerCase().includes('front') && 
+              !d.label.toLowerCase().includes('user') &&
+              !d.label.toLowerCase().includes('selfie')
+            );
+            const targetDevice = backCameras.length > 0 ? backCameras[0] : devices[0];
+            const idx = devices.findIndex(d => d.id === targetDevice.id);
+            setCameraIndex(idx === -1 ? 0 : idx);
+
+            await scannerRef.current.start(
+              targetDevice.id,
+              config,
+              (result) => handleScan(result),
+              () => {}
+            );
+            setIsScannerReady(true);
+          }
         }
       } catch (err: any) {
-        console.error("Critical camera error:", err);
+        console.error("Scanner start error:", err);
         setDebugError(err.message || String(err));
-        setError("La cámara no responde. Intenta abrir el link en Safari (3 puntos -> Abrir en navegador).");
+        setError("Error de cámara. Prueba abrir en Safari o refrescar.");
       }
     };
 
@@ -388,8 +394,36 @@ export default function FastScan() {
               <div 
                 className={`overflow-hidden rounded-3xl border-4 transition-all duration-300 relative min-h-[300px] w-full aspect-square bg-zinc-950 flex flex-col items-center justify-center ${isFlashActive ? 'animate-scan-success border-green-500' : 'border-zinc-800'}`}
               >
-                {/* El ID 'reader' debe estar siempre presente para que la librería no falle */}
+                {/* Feed de Cámara Real */}
                 <div id="reader" className="absolute inset-0 w-full h-full z-0" />
+
+                {/* Botón Girar Cámara (Sutil) */}
+                {availableDevices.length > 1 && isScannerReady && (
+                  <button 
+                    onClick={async () => {
+                      if (!scannerRef.current) return;
+                      const nextIdx = (cameraIndex + 1) % availableDevices.length;
+                      setCameraIndex(nextIdx);
+                      setIsScannerReady(false);
+                      try {
+                        await scannerRef.current.stop();
+                        await scannerRef.current.start(
+                          availableDevices[nextIdx].id,
+                          { fps: 25, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                          (res) => handleScan(res),
+                          () => {}
+                        );
+                        setIsScannerReady(true);
+                      } catch (e) {
+                        console.error(e);
+                        window.location.reload();
+                      }
+                    }}
+                    className="absolute top-4 right-4 z-50 bg-black/60 backdrop-blur-md p-3 rounded-full border border-white/20 active:scale-90 transition-all"
+                  >
+                    <RefreshCw className="w-5 h-5 text-white" />
+                  </button>
+                )}
 
                 {!isScannerReady && !error && (
                   <div className="relative z-10 flex flex-col items-center gap-3 text-zinc-500">
