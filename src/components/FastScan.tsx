@@ -77,6 +77,8 @@ export default function FastScan() {
     validateToken();
   }, [token]);
 
+  const [debugError, setDebugError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!token || !storeId) return;
 
@@ -87,15 +89,9 @@ export default function FastScan() {
         }
 
         const config = {
-          fps: 25,
-          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-             const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-             const qrboxSize = Math.floor(minEdgeSize * 0.7);
-             return { width: qrboxSize, height: qrboxSize };
-          },
-          experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true
-          },
+          fps: 20,
+          qrbox: { width: 250, height: 250 },
+          aspectRatio: 1.0,
           formatsToSupport: [
             Html5QrcodeSupportedFormats.EAN_13, 
             Html5QrcodeSupportedFormats.EAN_8, 
@@ -105,30 +101,39 @@ export default function FastScan() {
           ],
         };
 
-        try {
-          // Intento 1: Cámara trasera con resolución ideal
-          await scannerRef.current.start(
-            { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }, 
-            config, 
-            (result) => handleScan(result),
-            () => {} 
-          );
-        } catch (e) {
-          console.warn("Retrying with minimal constraints...");
-          // Intento 2: Fallback total a cualquier cámara disponible
-          await scannerRef.current.start(
-            { facingMode: "environment" }, 
-            config, 
-            (result) => handleScan(result),
-            () => {} 
-          );
-        }
+        // Método ultra-compatible: Listar cámaras primero
+        const devices = await Html5Qrcode.getCameras();
         
-        setIsScannerReady(true);
-        setError(null);
-      } catch (err) {
+        if (devices && devices.length > 0) {
+          // Buscar cámara trasera por etiquetas comunes
+          const backCamera = devices.find(d => 
+            d.label.toLowerCase().includes('back') || 
+            d.label.toLowerCase().includes('trasera') ||
+            d.label.toLowerCase().includes('environment')
+          ) || devices[devices.length - 1]; // Fallback a la última cámara (suele ser la trasera)
+
+          await scannerRef.current.start(
+            backCamera.id, 
+            config, 
+            (result) => handleScan(result),
+            () => {} 
+          );
+          setIsScannerReady(true);
+          setError(null);
+        } else {
+           // Si no hay lista, intentar modo genérico
+           await scannerRef.current.start(
+             { facingMode: "environment" },
+             config,
+             (result) => handleScan(result),
+             () => {}
+           );
+           setIsScannerReady(true);
+        }
+      } catch (err: any) {
         console.error("Critical camera error:", err);
-        setError("La cámara no responde. Si el problema persiste, toca los 3 puntos abajo y selecciona 'Abrir en Safari'.");
+        setDebugError(err.message || String(err));
+        setError("La cámara no responde. Intenta abrir el link en Safari (3 puntos -> Abrir en navegador).");
       }
     };
 
@@ -136,9 +141,7 @@ export default function FastScan() {
 
     return () => {
       if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().then(() => {
-          scannerRef.current?.clear();
-        }).catch(err => console.error(err));
+        scannerRef.current.stop().catch(err => console.error(err));
       }
     };
   }, [token, storeId]);
@@ -394,6 +397,9 @@ export default function FastScan() {
                   <div className="relative z-50 p-6 text-center space-y-4">
                      <AlertCircle className="w-12 h-12 text-red-500 mx-auto" />
                      <p className="text-sm font-bold text-red-400 leading-tight">{error}</p>
+                     {debugError && (
+                       <p className="text-[10px] text-zinc-600 font-mono break-all bg-black/50 p-2 rounded">Tech: {debugError}</p>
+                     )}
                      <button 
                        onClick={() => window.location.reload()} 
                        className="w-full py-4 bg-zinc-800 rounded-2xl text-sm font-black hover:bg-zinc-700"
