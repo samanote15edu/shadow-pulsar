@@ -280,7 +280,7 @@ serve(async (req) => {
           const { data: newStore } = await supabase.from('stores').insert({ 
             name: storeName, 
             owner_id: profile.id,
-            business_type: metadata.business_type 
+            business_type: metadata?.business_type || 'inventory' 
           }).select().single();
           
           if (newStore) {

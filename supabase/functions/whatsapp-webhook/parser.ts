@@ -551,7 +551,8 @@ export async function executeCommand(
 
       if (!newStoreName) {
         return { 
-          nextStep: 'awaiting_new_store_name_creation', 
+          nextStep: 'awaiting_company_name', 
+          metadata: { business_type: 'inventory' },
           responseText: '🏢 *Crear Nueva Sucursal*\n\n¿Cómo se llamará la nueva tienda? (Escribe el nombre)' 
         };
       }
