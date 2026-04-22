@@ -272,27 +272,39 @@ serve(async (req) => {
         return new Response('OK', { status: 200 });
       }
 
-      // ESTADO: Captura de Nombre de Empresa (Flujo robusto)
-      if (step === 'awaiting_company_name') {
+      // ESTADO: Captura de Nombre de Empresa / Sucursal
+      if (['awaiting_company_name', 'awaiting_store_name', 'awaiting_new_store_name_creation'].includes(step)) {
         const storeName = text.trim();
+        if (storeName.length < 2) {
+          await sendWhatsAppMessage(from, "❌ El nombre es muy corto. Por favor escribe el nombre completo de tu tienda.");
+          return new Response('OK', { status: 200 });
+        }
+
         if (profile) {
           // Usuario ya existe: crear tienda vinculada inmediatamente
-          const { data: newStore } = await supabase.from('stores').insert({ 
+          const bType = metadata?.business_type || 'inventory';
+          const { data: newStore, error: storeErr } = await supabase.from('stores').insert({ 
             name: storeName, 
             owner_id: profile.id,
-            business_type: metadata?.business_type || 'inventory' 
+            business_type: bType 
           }).select().single();
           
+          if (storeErr) {
+            console.error('[ERROR CREATING STORE]', storeErr);
+            await sendWhatsAppMessage(from, `❌ Lo siento, hubo un error al crear la tienda: ${storeErr.message}`);
+            return new Response('OK', { status: 200 });
+          }
+
           if (newStore) {
             await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', profile.id);
             // Pasar a onboarding guiado
             await supabase.from('registration_states').update({ 
                step: 'awaiting_onboarding_confirm',
-               metadata: { ...metadata, owner_name: profile.full_name } 
+               metadata: { ...metadata, store_id: newStore.id, business_type: bType, owner_name: profile.full_name } 
             }).eq('whatsapp_number', from);
             
-            const mode = metadata.business_type === 'activity_logs' ? 'Bitácora' : 'Inventario';
-            const welcomeMsg = `¡Todo listo! Tu nueva empresa *${storeName}* ha sido registrada en modo *${mode}*. 🚀\n\n¿Deseas que te guíe para registrar tu primer producto ahora mismo?`;
+            const modeName = bType === 'activity_logs' ? 'Bitácora' : 'Inventario';
+            const welcomeMsg = `¡Todo listo! Tu nueva empresa *${storeName}* ha sido registrada en modo *${modeName}*. 🚀\n\n¿Deseas que te guíe para registrar tu primer producto ahora mismo?`;
             
             await sendWhatsAppButtons(from, welcomeMsg, [
               { id: 'yes', title: '¡Sí, vamos! ✅' },
@@ -300,7 +312,7 @@ serve(async (req) => {
             ]);
           }
         } else {
-          // Usuario nuevo: pasar a pedir nombre
+          // Usuario totalmente nuevo: pasar a pedir nombre del dueño
           await supabase.from('registration_states').update({ 
             step: 'awaiting_owner_name_for_new_store', 
             metadata: { ...metadata, store_name: storeName } 
