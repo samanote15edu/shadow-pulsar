@@ -364,7 +364,7 @@ serve(async (req) => {
         const isNegative = isButtonNo || ['no', 'n', 'nel', 'nones', 'cancelar', 'cancel'].some(k => normalized === k);
 
         if (isPositive) {
-          await sendWhatsAppMessage(from, `¡Excelente decisión! 💡\n\nEl primer paso es dar de alta tus existencias.\n\nPor favor, escribe la palabra *Surtido* para abrir tu escáner y registrar tu primer producto.`);
+          await sendWhatsAppMessage(from, `¡Excelente decisión! 💡\n\nEl primer paso es dar de alta tus existencias.\n\nPor favor, escribe la palabra *Surtido* para registrar tu primer producto.`);
         } else if (isNegative) {
           await sendWhatsAppMessage(from, `Entendido. Puedes empezar cuando gustes escribiendo *Menu* para ver todas las opciones.\n\n¡Mucho éxito en tu negocio! 🚀`);
         } else {
@@ -1478,8 +1478,6 @@ serve(async (req) => {
         }
       }
 
-      const debugSuffix = `\n\n_🔧 [S:${state?.step || "null"}|P:${!!profile}]_`;
-
       console.time('executeCommand');
       const res = await executeCommand(text, supabase, profile.store_id, profile.role, from, profile.id);
       console.timeEnd('executeCommand');
@@ -1494,21 +1492,19 @@ serve(async (req) => {
         
         if (stateError) {
           console.error('[STATE UPSERT ERROR]', stateError);
-          await sendWhatsAppMessage(from, `❌ Error técnico al guardar el estado: ${stateError.message}${debugSuffix}`);
+          await sendWhatsAppMessage(from, `❌ Error técnico al guardar el estado: ${stateError.message}`);
           return new Response('OK', { status: 200 });
         }
-        // No enviamos confirmación aquí para no saturar, el mensaje siguiente llevará el S: corregido
       }
 
       if (res.responseText) {
-        const finalMsg = res.responseText + debugSuffix;
         if (['awaiting_confirmation', 'awaiting_bulk_confirmation', 'awaiting_void_confirmation', 'awaiting_cost_confirmation', 'awaiting_price_confirmation', 'awaiting_payment_ledgers_confirmation'].includes(res.nextStep || '')) {
-          await sendWhatsAppButtons(from, finalMsg, [{ id: 'yes', title: 'SÍ ✅' }, { id: 'no', title: 'NO ❌' }]);
+          await sendWhatsAppButtons(from, res.responseText, [{ id: 'yes', title: 'SÍ ✅' }, { id: 'no', title: 'NO ❌' }]);
         } else {
-          await sendWhatsAppMessage(from, finalMsg);
+          await sendWhatsAppMessage(from, res.responseText);
         }
       } else {
-        await sendWhatsAppMessage(from, `🤔 No entendí. Prueba con: 'Inventario' o una lista como '2 cocas'.${debugSuffix}`);
+        await sendWhatsAppMessage(from, "🤔 No entendí. Prueba con: 'Inventario' o una lista como '2 cocas'.");
       }
 
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
