@@ -285,9 +285,19 @@ serve(async (req) => {
           
           if (newStore) {
             await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', profile.id);
-            await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+            // Pasar a onboarding guiado
+            await supabase.from('registration_states').update({ 
+               step: 'awaiting_onboarding_confirm',
+               metadata: { ...metadata, owner_name: profile.full_name } 
+            }).eq('whatsapp_number', from);
+            
             const mode = metadata.business_type === 'activity_logs' ? 'Bitácora' : 'Inventario';
-            await sendWhatsAppMessage(from, `✅ ¡Todo listo! Tu nueva empresa *${storeName}* ha sido registrada en modo *${mode}*.\n\nAhora la tienes seleccionada.`);
+            const welcomeMsg = `¡Todo listo! Tu nueva empresa *${storeName}* ha sido registrada en modo *${mode}*. 🚀\n\n¿Deseas que te guíe para registrar tu primer producto ahora mismo?`;
+            
+            await sendWhatsAppButtons(from, welcomeMsg, [
+              { id: 'yes', title: '¡Sí, vamos! ✅' },
+              { id: 'no', title: 'Después ❌' }
+            ]);
           }
         } else {
           // Usuario nuevo: pasar a pedir nombre
@@ -318,11 +328,39 @@ serve(async (req) => {
 
           if (newStore) {
             await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', newProfile.id);
-            await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+            // Pasar a onboarding guiado
+            await supabase.from('registration_states').update({ 
+               step: 'awaiting_onboarding_confirm',
+               metadata: { ...metadata, owner_name: ownerName } 
+            }).eq('whatsapp_number', from);
+            
             const mode = metadata.business_type === 'activity_logs' ? 'Bitácora' : 'Inventario';
-            await sendWhatsAppMessage(from, `¡Bienvenido *${ownerName}*! 🚀\n\nEmpresa *${metadata.store_name}* creada en modo *${mode}*.`);
+            const welcomeMsg = `¡Bienvenido *${ownerName}*! 🚀 Tu empresa *${metadata.store_name}* está lista en modo *${mode}*.\n\n¿Deseas que te guíe para registrar tu primer producto ahora mismo?`;
+            
+            await sendWhatsAppButtons(from, welcomeMsg, [
+              { id: 'yes', title: '¡Sí, vamos! ✅' },
+              { id: 'no', title: 'Después ❌' }
+            ]);
           }
         }
+        return new Response('OK', { status: 200 });
+      }
+
+      // ESTADO: Confirmación de Onboarding Guiado
+      else if (step === 'awaiting_onboarding_confirm') {
+        const isPositive = isButtonYes || ['si', 's', 'yes', 'va', 'dale', 'ok', 'afirma', 'simon', 'sí', 'si'].some(k => normalized === k);
+        const isNegative = isButtonNo || ['no', 'n', 'nel', 'nones', 'cancelar', 'cancel'].some(k => normalized === k);
+
+        if (isPositive) {
+          await sendWhatsAppMessage(from, `¡Excelente decisión! 💡\n\nEl primer paso es dar de alta tus existencias.\n\nPor favor, escribe la palabra *Surtido* para abrir tu escáner y registrar tu primer producto.`);
+        } else if (isNegative) {
+          await sendWhatsAppMessage(from, `Entendido. Puedes empezar cuando gustes escribiendo *Menu* para ver todas las opciones.\n\n¡Mucho éxito en tu negocio! 🚀`);
+        } else {
+          await sendWhatsAppMessage(from, "¿Podemos empezar con tu primer producto? Presiona uno de los botones de arriba o responde con 'Sí' o 'No'.");
+          return new Response('OK', { status: 200 });
+        }
+        
+        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
         return new Response('OK', { status: 200 });
       }
 
