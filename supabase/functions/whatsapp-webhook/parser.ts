@@ -202,7 +202,7 @@ export async function executeCommand(
   // 3.1 PARTIAL RESTOCK (Guided flow)
   if (lowerMsg === 'surtido' || lowerMsg === 'resurtir' || lowerMsg === 'comprar') {
     return {
-      responseText: "¿De qué producto te llegó mercancía?",
+      responseText: "¿De qué producto te llegó mercancía? (Escribe el nombre)",
       nextStep: 'awaiting_restock_name_guided'
     };
   }
