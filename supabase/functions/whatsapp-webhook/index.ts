@@ -1478,6 +1478,8 @@ serve(async (req) => {
         }
       }
 
+      const debugSuffix = `\n\n_🔧 [S:${state?.step || "null"}|P:${!!profile}]_`;
+
       console.time('executeCommand');
       const res = await executeCommand(text, supabase, profile.store_id, profile.role, from, profile.id);
       console.timeEnd('executeCommand');
@@ -1492,20 +1494,21 @@ serve(async (req) => {
         
         if (stateError) {
           console.error('[STATE UPSERT ERROR]', stateError);
-          await sendWhatsAppMessage(from, `❌ Error técnico al guardar el estado: ${stateError.message}\n_Por favor intenta de nuevo o escribe Reset._`);
+          await sendWhatsAppMessage(from, `❌ Error técnico al guardar el estado: ${stateError.message}${debugSuffix}`);
           return new Response('OK', { status: 200 });
         }
+        // No enviamos confirmación aquí para no saturar, el mensaje siguiente llevará el S: corregido
       }
 
       if (res.responseText) {
+        const finalMsg = res.responseText + debugSuffix;
         if (['awaiting_confirmation', 'awaiting_bulk_confirmation', 'awaiting_void_confirmation', 'awaiting_cost_confirmation', 'awaiting_price_confirmation', 'awaiting_payment_ledgers_confirmation'].includes(res.nextStep || '')) {
-          await sendWhatsAppButtons(from, res.responseText, [{ id: 'yes', title: 'SÍ ✅' }, { id: 'no', title: 'NO ❌' }]);
+          await sendWhatsAppButtons(from, finalMsg, [{ id: 'yes', title: 'SÍ ✅' }, { id: 'no', title: 'NO ❌' }]);
         } else {
-          await sendWhatsAppMessage(from, res.responseText);
+          await sendWhatsAppMessage(from, finalMsg);
         }
       } else {
-        const debugInfo = `[S:${state?.step || "null"}|P:${!!profile}]`;
-        await sendWhatsAppMessage(from, `🤔 No entendí. Prueba con: 'Inventario' o una lista como '2 cocas'.\n\n_${debugInfo}_`);
+        await sendWhatsAppMessage(from, `🤔 No entendí. Prueba con: 'Inventario' o una lista como '2 cocas'.${debugSuffix}`);
       }
 
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
