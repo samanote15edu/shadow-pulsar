@@ -1483,7 +1483,18 @@ serve(async (req) => {
       console.timeEnd('executeCommand');
       
       if (res.nextStep) {
-        await supabase.from('registration_states').upsert({ whatsapp_number: from, step: res.nextStep, metadata: res.metadata });
+        const { error: stateError } = await supabase.from('registration_states').upsert({ 
+          whatsapp_number: from, 
+          step: res.nextStep, 
+          metadata: res.metadata,
+          updated_at: new Date().toISOString() 
+        });
+        
+        if (stateError) {
+          console.error('[STATE UPSERT ERROR]', stateError);
+          await sendWhatsAppMessage(from, `❌ Error técnico al guardar el estado: ${stateError.message}\n_Por favor intenta de nuevo o escribe Reset._`);
+          return new Response('OK', { status: 200 });
+        }
       }
 
       if (res.responseText) {
@@ -1493,7 +1504,8 @@ serve(async (req) => {
           await sendWhatsAppMessage(from, res.responseText);
         }
       } else {
-        await sendWhatsAppMessage(from, "🤔 No entendí. Prueba con: 'Inventario' o una lista como '2 cocas'.");
+        const debugInfo = `[S:${state?.step || "null"}|P:${!!profile}]`;
+        await sendWhatsAppMessage(from, `🤔 No entendí. Prueba con: 'Inventario' o una lista como '2 cocas'.\n\n_${debugInfo}_`);
       }
 
       await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
