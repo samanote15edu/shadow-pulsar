@@ -63,7 +63,7 @@ export default function MovementLedger() {
 
     let query = supabase
       .from('transactions')
-      .select('*, products(name), fiado_ledgers(customer_name)')
+      .select('*, products(name)')
       .eq('store_id', selectedStore.id)
       .order('created_at', { ascending: false })
       .range(pageToFetch * PAGE_SIZE, (pageToFetch + 1) * PAGE_SIZE - 1);

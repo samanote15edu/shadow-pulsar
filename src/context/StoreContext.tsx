@@ -201,7 +201,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const logout = async () => {
     localStorage.removeItem('last_store_id');
     await supabase.auth.signOut();
-    window.location.reload();
+    window.location.href = '/';
   };
 
   const handleSetSelectedStore = (store: Store) => {

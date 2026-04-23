@@ -82,7 +82,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       setLowStockProducts(low);
     }
     const { data: activities } = await supabase.from('transactions')
-      .select('*, products(name), fiado_ledgers(customer_name)')
+      .select('*, products(name)')
       .eq('store_id', selectedStore?.id)
       .eq('is_voided', false)
       .neq('type', 'void')
