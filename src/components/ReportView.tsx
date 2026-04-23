@@ -23,68 +23,114 @@ export default function ReportView() {
   const { token } = useParams();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isLocked, setIsLocked] = useState(true);
+  const [otpCode, setOtpCode] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [otpMessage, setOtpMessage] = useState('');
 
   // DATE FILTER STATE
   const [rangeType, setRangeType] = useState<'today' | 'yesterday' | 'week' | 'custom'>('today');
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
   const [totalSales, setTotalSales] = useState(0);
 
-  useEffect(() => {
-    async function fetchReport() {
-      // 1. Validate Token
-      const { data: tokenData, error: tokenError } = await supabase
-        .from('report_tokens')
-        .select('store_id, expires_at, access_level')
-        .eq('token', token)
-        .gt('expires_at', new Date().toISOString())
-        .single();
+  async function fetchReport() {
+    setLoading(true);
+    // 1. Validate Token and 2FA status
+    const { data: tokenData, error: tokenError } = await supabase
+      .from('report_tokens')
+      .select('store_id, expires_at, access_level, otp_verified_at, last_activity_at')
+      .eq('token', token)
+      .gt('expires_at', new Date().toISOString())
+      .single();
 
-      if (tokenError || !tokenData) {
-        setData('invalid');
-        setLoading(false);
-        return;
-      }
-
-      // 2. Setup Date Range
-      let start = new Date();
-      let end = new Date();
-
-      if (rangeType === 'today') {
-        start.setHours(0, 0, 0, 0);
-      } else if (rangeType === 'yesterday') {
-        start.setDate(start.getDate() - 1);
-        start.setHours(0, 0, 0, 0);
-        end.setDate(end.getDate() - 1);
-        end.setHours(23, 59, 59, 999);
-      } else if (rangeType === 'week') {
-        start.setDate(start.getDate() - 7);
-        start.setHours(0, 0, 0, 0);
-      } else if (rangeType === 'custom' && customRange.start && customRange.end) {
-        start = new Date(customRange.start);
-        end = new Date(customRange.end);
-        end.setHours(23, 59, 59, 999);
-      }
-
-      // 3. Fetch Data
-      const { data: store } = await supabase.from('stores').select('*').eq('id', tokenData.store_id).single();
-      const { data: products } = await supabase.from('products').select('*').eq('store_id', tokenData.store_id).order('current_stock', { ascending: true });
-
-      const { data: transactions } = await supabase
-        .from('transactions')
-        .select('*, products(name)')
-        .eq('store_id', tokenData.store_id)
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString())
-        .order('created_at', { ascending: false });
-
-      const sum = transactions?.filter(t => t.type === 'sale').reduce((acc, t) => acc + (Number(t.total_amount) || 0), 0) || 0;
-
-      setData({ store, products, transactions, accessLevel: tokenData.access_level });
-      setTotalSales(sum);
+    if (tokenError || !tokenData) {
+      setData('invalid');
       setLoading(false);
+      return;
     }
+
+    // CHECK 2FA SESSION (20 minute timeout)
+    const now = new Date();
+    const lastActivity = tokenData.last_activity_at ? new Date(tokenData.last_activity_at) : null;
+    const isSessionFresh = lastActivity && (now.getTime() - lastActivity.getTime()) < 20 * 60 * 1000;
+
+    if (!tokenData.otp_verified_at || !isSessionFresh) {
+      setIsLocked(true);
+      setLoading(false);
+      return;
+    }
+
+    setIsLocked(false);
+    // Update last activity
+    await supabase.from('report_tokens').update({ last_activity_at: now.toISOString() }).eq('token', token);
+
+    // 2. Setup Date Range
+    let start = new Date();
+    let end = new Date();
+
+    if (rangeType === 'today') {
+      start.setHours(0, 0, 0, 0);
+    } else if (rangeType === 'yesterday') {
+      start.setDate(start.getDate() - 1);
+      start.setHours(0, 0, 0, 0);
+      end.setDate(end.getDate() - 1);
+      end.setHours(23, 59, 59, 999);
+    } else if (rangeType === 'week') {
+      start.setDate(start.getDate() - 7);
+      start.setHours(0, 0, 0, 0);
+    } else if (rangeType === 'custom' && customRange.start && customRange.end) {
+      start = new Date(customRange.start);
+      end = new Date(customRange.end);
+      end.setHours(23, 59, 59, 999);
+    }
+
+    // 3. Fetch Data
+    const { data: store } = await supabase.from('stores').select('*').eq('id', tokenData.store_id).single();
+    const { data: products } = await supabase.from('products').select('*').eq('store_id', tokenData.store_id).order('current_stock', { ascending: true });
+
+    const { data: transactions } = await supabase
+      .from('transactions')
+      .select('*, products(name)')
+      .eq('store_id', tokenData.store_id)
+      .gte('created_at', start.toISOString())
+      .lte('created_at', end.toISOString())
+      .order('created_at', { ascending: false });
+
+    const sum = transactions?.filter(t => t.type === 'sale').reduce((acc, t) => acc + (Number(t.total_amount) || 0), 0) || 0;
+
+    setData({ store, products, transactions, accessLevel: tokenData.access_level });
+    setTotalSales(sum);
+    setLoading(false);
+  }
+
+  useEffect(() => {
     fetchReport();
   }, [token, rangeType, customRange]);
+
+  const handleRequestOTP = async () => {
+    setIsVerifying(true);
+    setOtpMessage('Enviando código...');
+    const { error } = await supabase.functions.invoke('dashboard-auth', {
+      body: { action: 'request-otp', token }
+    });
+    setIsVerifying(false);
+    if (error) setOtpMessage('Error enviando el código. Reintenta.');
+    else setOtpMessage('Código enviado a tu WhatsApp ✅');
+  };
+
+  const handleVerifyOTP = async () => {
+    if (otpCode.length !== 6) return;
+    setIsVerifying(true);
+    const { data, error } = await supabase.functions.invoke('dashboard-auth', {
+      body: { action: 'verify-otp', token, code: otpCode }
+    });
+    setIsVerifying(false);
+    if (error || !data.success) {
+      setOtpMessage('Código incorrecto ❌');
+    } else {
+      fetchReport();
+    }
+  };
 
   const handleExport = () => {
     if (!data || !data.transactions) return;
@@ -98,8 +144,55 @@ export default function ReportView() {
     downloadCSV(exportData, `Reporte_${data.store.name}`);
   };
 
-  if (loading) return <div className="flex items-center justify-center min-h-screen bg-slate-900 text-white font-sans uppercase font-black tracking-widest text-xs animate-pulse">Analizando Reporte...</div>;
+  if (loading) return <div className="flex items-center justify-center min-h-screen bg-slate-900 text-white font-sans uppercase font-black tracking-widest text-xs animate-pulse">Analizando Seguridad...</div>;
   if (data === 'invalid') return <div className="flex items-center justify-center min-h-screen bg-slate-900 text-red-500 font-sans font-black uppercase text-xs text-center p-8">Este acceso ha expirado.<br />Pide uno nuevo en WhatsApp.</div>;
+
+  if (isLocked) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-white font-sans">
+        <div className="max-w-md w-full bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 p-8 rounded-[40px] shadow-2xl text-center">
+          <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+            <span className="text-4xl">🔐</span>
+          </div>
+          <h2 className="text-2xl font-black uppercase tracking-tighter mb-2 italic">Acceso Protegido</h2>
+          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-8 leading-relaxed">
+            Para ver el libro de movimientos de esta tienda, necesitamos verificar que eres el dueño.
+          </p>
+
+          {!otpMessage.includes('enviado') ? (
+            <button 
+              onClick={handleRequestOTP}
+              disabled={isVerifying}
+              className="w-full bg-emerald-500 text-black py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-emerald-400 transition-all active:scale-95 disabled:opacity-50"
+            >
+              {isVerifying ? 'Procesando...' : 'Pedir código a WhatsApp'}
+            </button>
+          ) : (
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+              <input 
+                type="text" 
+                maxLength={6}
+                placeholder="CÓDIGO DE 6 DÍGITOS"
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                className="w-full bg-slate-900 border-2 border-slate-700 p-4 rounded-2xl text-center text-2xl font-black tracking-[10px] focus:border-emerald-500 outline-none transition-all"
+              />
+              <button 
+                onClick={handleVerifyOTP}
+                disabled={isVerifying || otpCode.length !== 6}
+                className="w-full bg-white text-black py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-slate-100 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {isVerifying ? 'Verificando...' : 'Entrar al Dashboard'}
+              </button>
+              <button onClick={() => setOtpMessage('')} className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Reenviar código</button>
+            </div>
+          )}
+
+          {otpMessage && <p className="mt-6 text-[10px] font-black uppercase tracking-widest text-emerald-400">{otpMessage}</p>}
+        </div>
+      </div>
+    );
+  }
 
   const isAdmin = data.accessLevel === 'admin';
 
