@@ -189,12 +189,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return;
         }
 
-        // --- 3. FALLBACK TO DEMO ---
-        console.warn('Usando modo Demo (Sin sesión ni Magic Link)');
-        setStores([DEMO_STORE]);
-        setSelectedStore(DEMO_STORE);
-        setIsDemo(true);
-        setUserRole('owner');
+        // --- 3. UNVERIFIED GUEST FALLBACK ---
+        setStores([]);
+        setSelectedStore(null);
+        setIsDemo(false);
+        setUserRole(null);
         setLoading(false);
       } catch (err) {
         console.error('Error en StoreContext:', err);

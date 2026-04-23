@@ -251,34 +251,23 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   };
 
   if (!selectedStore && !loading) {
-    if (isDemo) return <StoreSelector />; // Demo can also see selector for testing
     if (stores.length > 0) return <StoreSelector />;
     
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center text-4xl mb-6">🚫</div>
-        <h2 className="text-xl font-bold mb-2 uppercase tracking-tighter italic">Sin Acceso</h2>
-        <p className="text-slate-400 text-sm mb-8 max-w-xs">No tienes tiendas asignadas o tu sesión ha expirado.</p>
-        <button onClick={logout} className="bg-sky-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-sky-500/20 uppercase tracking-widest text-xs">Regresar al Inicio</button>
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center text-slate-100">
+        <div className="w-24 h-24 bg-slate-900 border border-white/5 rounded-full flex items-center justify-center shadow-2xl mb-8">
+          <span className="text-5xl opacity-50">👋</span>
+        </div>
+        <h2 className="text-2xl font-black mb-3 uppercase tracking-tighter italic bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">Sesión Cerrada</h2>
+        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest leading-relaxed max-w-sm mb-10">
+          Has salido del sistema de manera segura. Para volver a entrar a tu negocio, abre el enlace mágico que te enviamos por WhatsApp.
+        </p>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
-      {isDemo && (
-        <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-6 mb-8 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="space-y-1 text-center md:text-left">
-            <h2 className="text-amber-500 text-sm font-black uppercase tracking-widest">Modo Demo Activado</h2>
-            <p className="text-slate-400 text-xs">Estas viendo datos de prueba.</p>
-          </div>
-          <form onSubmit={handleLogin} className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-            <input type="email" placeholder="Email" className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-sm" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            <input type="password" placeholder="Contraseña" className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-sm" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            <button type="submit" disabled={isLoggingIn} className="bg-amber-500 text-black px-6 py-2 rounded-xl text-sm font-bold hover:bg-amber-400 transition-colors uppercase">{isLoggingIn ? '...' : 'Entrar'}</button>
-          </form>
-        </div>
-      )}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 className="text-2xl font-bold bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">{selectedStore?.name || 'Inventario'}</h1>
