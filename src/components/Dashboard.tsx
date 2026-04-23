@@ -50,7 +50,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onOpenScan }: DashboardProps) {
-  const { selectedStore, stores, setSelectedStore, loading, isDemo, userName, userRole, logout } = useStoreContext();
+  const { selectedStore, stores, setSelectedStore, loading, isDemo, userName, userRole, isVerified, setIsVerified, logout } = useStoreContext();
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [recentActivity, setRecentActivity] = useState<Transaction[]>([]);
@@ -63,41 +63,17 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   const [password, setPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // 2FA STATES
-  const [isLocked, setIsLocked] = useState(false);
+  // 2FA STATES (UI Only)
   const [otpCode, setOtpCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [otpMessage, setOtpMessage] = useState('');
 
-  useEffect(() => {
-    async function check2FA() {
-      const params = new URLSearchParams(window.location.search);
-      const u = params.get('u');
-      if (u) {
-        setLoadingInternal(true);
-        const { data: profile } = await supabase.from('profiles').select('otp_verified_at, last_activity_at').eq('id', u).single();
-        
-        if (profile) {
-          const now = new Date();
-          const lastActivity = profile.last_activity_at ? new Date(profile.last_activity_at) : null;
-          const isSessionFresh = lastActivity && (now.getTime() - lastActivity.getTime()) < 20 * 60 * 1000;
-
-          if (!profile.otp_verified_at || !isSessionFresh) {
-            setIsLocked(true);
-          } else {
-            await supabase.from('profiles').update({ last_activity_at: now.toISOString() }).eq('id', u);
-          }
-        }
-        setLoadingInternal(false);
-      }
-    }
-    check2FA();
-  }, []);
-
   const [loadingInternal, setLoadingInternal] = useState(false);
 
   const handleRequestOTP = async () => {
-    const u = new URLSearchParams(window.location.search).get('u');
+    const { data: { user } } = await supabase.auth.getUser();
+    const params = new URLSearchParams(window.location.search);
+    const u = params.get('u') || user?.id;
     if (!u) return;
     setIsVerifying(true);
     setOtpMessage('Enviando código...');
@@ -110,7 +86,9 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   };
 
   const handleVerifyOTP = async () => {
-    const u = new URLSearchParams(window.location.search).get('u');
+    const { data: { user } } = await supabase.auth.getUser();
+    const params = new URLSearchParams(window.location.search);
+    const u = params.get('u') || user?.id;
     if (!u || otpCode.length !== 6) return;
     setIsVerifying(true);
     const { data, error } = await supabase.functions.invoke('dashboard-auth', {
@@ -120,7 +98,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
     if (error || !data.success) {
       setOtpMessage('Código incorrecto ❌');
     } else {
-      setIsLocked(false);
+      setIsVerified(true);
       fetchDashboardData();
     }
   };
@@ -311,60 +289,6 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
       alert('Hubo un error al intentar eliminar el producto.');
     }
   };
-
-  if (loading || loadingInternal) return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 gap-4">
-      <div className="w-12 h-12 border-4 border-sky-500/20 border-t-sky-500 rounded-full animate-spin"></div>
-      <p className="animate-pulse font-medium tracking-wide italic uppercase text-[10px] tracking-widest">Verificando Seguridad...</p>
-    </div>
-  );
-
-  if (isLocked) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-white font-sans">
-        <div className="max-w-md w-full glass-pane p-10 rounded-[40px] text-center border-white/5">
-          <div className="w-24 h-24 bg-sky-500/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-sky-500/20">
-            <span className="text-5xl">🏦</span>
-          </div>
-          <h2 className="text-3xl font-black uppercase tracking-tighter mb-3 italic bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">Área Reservada</h2>
-          <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-10 leading-relaxed opacity-70">
-            Para gestionar tus sucursales y finanzas, ingresa el código de 6 dígitos que te enviamos por WhatsApp.
-          </p>
-
-          {!otpMessage.includes('enviado') ? (
-            <button 
-              onClick={handleRequestOTP}
-              disabled={isVerifying}
-              className="w-full bg-sky-500 text-black py-5 rounded-3xl font-black uppercase tracking-widest text-xs hover:bg-sky-400 transition-all active:scale-95 disabled:opacity-50 shadow-2xl shadow-sky-500/20"
-            >
-              {isVerifying ? 'Generando...' : 'Obtener código de acceso'}
-            </button>
-          ) : (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-              <input 
-                type="text" 
-                maxLength={6}
-                placeholder="000 000"
-                value={otpCode}
-                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                className="w-full bg-slate-900 border-2 border-white/10 p-5 rounded-3xl text-center text-4xl font-black tracking-[12px] focus:border-sky-500 outline-none transition-all placeholder:opacity-20 shadow-inner"
-              />
-              <button 
-                onClick={handleVerifyOTP}
-                disabled={isVerifying || otpCode.length !== 6}
-                className="w-full bg-white text-black py-5 rounded-3xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-100 transition-all active:scale-95 disabled:opacity-50"
-              >
-                {isVerifying ? 'Autenticando...' : 'Desbloquear Panel'}
-              </button>
-              <button onClick={() => setOtpMessage('')} className="text-[10px] text-slate-500 font-black uppercase tracking-widest hover:text-slate-400 transition-colors">Solicitar nuevo código</button>
-            </div>
-          )}
-
-          {otpMessage && <p className="mt-8 text-[10px] font-black uppercase tracking-widest text-sky-400 italic animate-pulse">{otpMessage}</p>}
-        </div>
-      </div>
-    );
-  }
 
   if (!selectedStore && !loading) {
     if (isDemo) return <StoreSelector />; // Demo can also see selector for testing

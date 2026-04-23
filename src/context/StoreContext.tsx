@@ -18,6 +18,8 @@ interface StoreContextType {
   isDemo: boolean;
   userName: string | null;
   userRole: 'owner' | 'employee' | null;
+  isVerified: boolean;
+  setIsVerified: (val: boolean) => void;
   logout: () => Promise<void>;
 }
 
@@ -36,6 +38,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isDemo, setIsDemo] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<'owner' | 'employee' | null>(null);
+  const [isVerified, setIsVerified] = useState(false);
 
   useEffect(() => {
     async function fetchStores() {
@@ -46,6 +49,23 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // --- 1. MAGIC LINK ENTRY (u and/or s parameters) ---
         const urlStoreId = params.get('s')?.trim() || null;
         const magicUserId = params.get('u')?.trim() || null;
+
+        // AUTH CHECK
+        const { data: { user } } = await supabase.auth.getUser();
+        const targetUserId = magicUserId || user?.id;
+
+        // 2FA CHECK
+        if (targetUserId) {
+          const { data: profile } = await supabase.from('profiles').select('otp_verified_at, last_activity_at, role').eq('id', targetUserId).single();
+          if (profile && profile.role === 'owner') {
+            const now = new Date();
+            const lastActivity = profile.last_activity_at ? new Date(profile.last_activity_at) : null;
+            const isFresh = lastActivity && (now.getTime() - lastActivity.getTime()) < 20 * 60 * 1000;
+            setIsVerified(!!profile.otp_verified_at && isFresh);
+          } else if (profile?.role === 'employee') {
+            setIsVerified(true); // Employees don't 2FA for now
+          }
+        }
         
         // Force Global View if 'u' is present but NO 's' is in the URL
         const isForceGlobal = params.has('u') && !params.has('s');
@@ -195,6 +215,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       isDemo, 
       userName, 
       userRole, 
+      isVerified,
+      setIsVerified,
       logout 
     }}>
       {children}
