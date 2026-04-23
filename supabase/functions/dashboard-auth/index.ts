@@ -47,7 +47,9 @@ serve(async (req) => {
         body: JSON.stringify({ messaging_product: 'whatsapp', to: ownerNumber, type: 'text', text: { body: `🔐 Código: *${otp}*` } })
       });
 
-      return new Response(JSON.stringify({ message: 'OK' }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ message: 'OK' }), { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
     }
 
     // 2. VERIFICAR CÓDIGO
@@ -75,7 +77,9 @@ serve(async (req) => {
 
       if (finalErr) throw new Error(`Fallo confirmación: ${finalErr.message}`);
 
-      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true }), { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
     }
 
     throw new Error('Acción no reconocida');
