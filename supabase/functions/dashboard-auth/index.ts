@@ -71,8 +71,7 @@ serve(async (req) => {
       if (!entry) throw new Error(`El código "${code}" no existe o ya venció`);
       
       const { error: finalErr } = await supabase.from(table).update({ 
-        otp_verified_at: new Date().toISOString(), 
-        last_activity_at: new Date().toISOString() 
+        otp_verified_at: new Date().toISOString()
       }).eq(idCol, realId);
 
       if (finalErr) throw new Error(`Fallo confirmación: ${finalErr.message}`);
