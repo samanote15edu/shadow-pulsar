@@ -47,22 +47,31 @@ serve(async (req) => {
 
     // 2. VERIFICAR CÓDIGO
     if (action === 'verify-otp') {
-      const { data: p } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').or(`id.eq.${token},id.ilike.${token}%`).maybeSingle();
-      const { data: t } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').or(`token.eq.${token},token.ilike.${token}%`).maybeSingle();
+      // Intento A: Por ID (el más seguro)
+      let { data: entry } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').or(`id.eq.${token},id.ilike.${token}%`).maybeSingle();
+      let table = 'profiles';
+      let idCol = 'id';
 
-      const entry = p || t;
-      const table = p ? 'profiles' : 'report_tokens';
-      const idCol = p ? 'id' : 'token';
-      const realId = p ? p.id : t?.token;
+      if (!entry) {
+        const { data: t } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').or(`token.eq.${token},token.ilike.${token}%`).maybeSingle();
+        if (t) { entry = { id: t.token, ...t }; table = 'report_tokens'; idCol = 'token'; }
+      }
 
-      if (!entry) throw new Error(`Registro no hallado (${token?.substring(0, 8)})`);
-      if (entry.otp_code !== code) throw new Error('Código no coincide');
-      if (new Date(entry.otp_expires_at) < new Date()) throw new Error('Código vencido');
+      // Intento B (EMERGENCIA): Buscar cualquier registro que tenga ese CÓDIGO y no haya expirado
+      if (!entry) {
+        const { data: emergencyProfile } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').eq('otp_code', code).gt('otp_expires_at', new Date().toISOString()).maybeSingle();
+        if (emergencyProfile) { entry = emergencyProfile; table = 'profiles'; idCol = 'id'; }
+      }
+
+      if (!entry) throw new Error(`Código no hallado en sistema (${token?.substring(0, 8)})`);
+      
+      if (entry.otp_code !== code) throw new Error('Código incorrecto');
+      if (new Date(entry.otp_expires_at) < new Date()) throw new Error('Código ya venció');
 
       await supabase.from(table).update({ 
         otp_verified_at: new Date().toISOString(),
         last_activity_at: new Date().toISOString() 
-      }).eq(idCol, realId);
+      }).eq(idCol, entry.id);
 
       return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
     }
