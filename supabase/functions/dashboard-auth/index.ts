@@ -77,39 +77,24 @@ serve(async (req) => {
 
     // 2. VERIFICAR CÓDIGO
     if (action === 'verify-otp') {
-      // Intentar encontrar el registro en Profiles
-      let { data: entry } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').eq('id', token).maybeSingle();
-      let table = 'profiles';
-      let idCol = 'id';
+      const { data: profEntry } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').eq('id', token).maybeSingle();
+      const { data: tokEntry } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').eq('token', token).maybeSingle();
 
-      // Si no está en Profiles, buscar en Report Tokens
-      if (!entry) {
-        const { data: reportEntry } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').eq('token', token).maybeSingle();
-        if (reportEntry) {
-          entry = { id: reportEntry.token, otp_code: reportEntry.otp_code, otp_expires_at: reportEntry.otp_expires_at };
-          table = 'report_tokens';
-          idCol = 'token';
-        }
-      }
+      const entry = profEntry || tokEntry;
+      const table = profEntry ? 'profiles' : 'report_tokens';
+      const idCol = profEntry ? 'id' : 'token';
 
-      if (!entry) throw new Error('No se encontró registro para este ID');
+      if (!entry) throw new Error(`Registro no encontrado para ID: ${token?.substring(0, 8)}`);
       
-      // Comparación manual (más robusta)
-      if (entry.otp_code !== code) {
-        throw new Error(`Código incorrecto`);
-      }
+      if (entry.otp_code !== code) throw new Error('Código incorrecto');
+      if (new Date(entry.otp_expires_at) < new Date()) throw new Error('Código expirado');
 
-      if (new Date(entry.otp_expires_at) < new Date()) {
-        throw new Error('Código expirado');
-      }
-
-      // Guardar verificación
-      const { error: updError } = await supabase.from(table).update({ 
+      const { error: updErr } = await supabase.from(table).update({ 
         otp_verified_at: new Date().toISOString(),
         last_activity_at: new Date().toISOString() 
       }).eq(idCol, token);
 
-      if (updError) throw new Error('Error al guardar verificación');
+      if (updErr) throw new Error('Error al actualizar verificación');
 
       return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
     }
