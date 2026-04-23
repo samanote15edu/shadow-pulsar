@@ -59,33 +59,32 @@ serve(async (req) => {
 
     // 2. VERIFICAR CÓDIGO
     if (action === 'verify-otp') {
-      // Intento A: Por ID (el más seguro)
-      let { data: entry } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').or(`id.eq.${token},id.ilike.${token}%`).maybeSingle();
-      let table = 'profiles';
-      let idCol = 'id';
-
-      if (!entry) {
-        const { data: t } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').or(`token.eq.${token},token.ilike.${token}%`).maybeSingle();
-        if (t) { entry = { id: t.token, ...t }; table = 'report_tokens'; idCol = 'token'; }
-      }
-
-      // Intento B (EMERGENCIA): Buscar cualquier registro que tenga ese CÓDIGO y no haya expirado
-      if (!entry) {
-        const { data: emergencyProfile } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').eq('otp_code', code).gt('otp_expires_at', new Date().toISOString()).maybeSingle();
-        if (emergencyProfile) { entry = emergencyProfile; table = 'profiles'; idCol = 'id'; }
-      }
-
-      if (!entry) throw new Error(`Código no hallado en sistema (${token?.substring(0, 8)})`);
+      // Búsqueda AGRESIVA: No nos importa el ID, buscamos cualquier registro con ese código que no haya vencido
+      const now = new Date().toISOString();
       
-      if (entry.otp_code !== code) throw new Error('Código incorrecto');
-      if (new Date(entry.otp_expires_at) < new Date()) throw new Error('Código ya venció');
+      // 1. Probar en Profiles
+      const { data: p } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').eq('otp_code', code).gt('otp_expires_at', now).maybeSingle();
+      
+      // 2. Probar en Report Tokens (si no se halló en profiles)
+      let t = null;
+      if (!p) {
+        const { data: tokData } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').eq('otp_code', code).gt('otp_expires_at', now).maybeSingle();
+        t = tokData;
+      }
 
+      const entry = p || t;
+      const table = p ? 'profiles' : 'report_tokens';
+      const idCol = p ? 'id' : 'token';
+      const realId = p ? p.id : t?.token;
+
+      if (!entry) throw new Error(`Código ${code} no hallado o vencido`);
+      
       await supabase.from(table).update({ 
         otp_verified_at: new Date().toISOString(),
         last_activity_at: new Date().toISOString() 
-      }).eq(idCol, entry.id);
+      }).eq(idCol, realId);
 
-      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true, table_used: table }), { headers: corsHeaders });
     }
 
     throw new Error('Acción no reconocida');
