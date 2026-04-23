@@ -44,15 +44,23 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
     if (!u || otpCode.length !== 6) return;
     
     setIsVerifying(true);
+    setOtpMessage(''); // Limpiar mensajes anteriores
+    
     const { data, error } = await supabase.functions.invoke('dashboard-auth', {
       body: { action: 'verify-otp', token: u, code: otpCode }
     });
+    
     setIsVerifying(false);
-    if (error || !data.success) {
-      setOtpMessage('Código incorrecto ❌');
-    } else {
+    
+    if (error) {
+      // Intentar extraer el mensaje de error de la respuesta JSON
+      const errorMsg = await error.context?.json()?.then((j: any) => j.error).catch(() => 'Error de conexión');
+      setOtpMessage(errorMsg || 'Código incorrecto ❌');
+    } else if (data?.success) {
       setIsVerified(true);
-      window.location.reload(); // Recargar para limpiar RLS
+      window.location.reload(); 
+    } else {
+      setOtpMessage('Error de verificación');
     }
   };
 

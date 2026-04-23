@@ -71,20 +71,29 @@ serve(async (req) => {
       });
     }
 
+    // 2. VERIFICAR CÓDIGO (Verify OTP)
     if (action === 'verify-otp') {
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token);
       const tableName = isUUID ? 'profiles' : 'report_tokens';
       const idCol = isUUID ? 'id' : 'token';
 
+      // console.log(`[VERIFY] Table: ${tableName}, ID: ${token}, Col: ${idCol}, Code: ${code}`);
+
       const { data: entry, error } = await supabase
         .from(tableName)
-        .select('*')
+        .select('otp_code, otp_expires_at')
         .eq(idCol, token)
-        .eq('otp_code', code)
         .single();
 
-      if (error || !entry) throw new Error('Código incorrecto');
-      if (new Date(entry.otp_expires_at) < new Date()) throw new Error('Expirado');
+      if (error || !entry) throw new Error('No se encontró el registro de acceso');
+      
+      if (entry.otp_code !== code) {
+        throw new Error('Código incorrecto');
+      }
+
+      if (new Date(entry.otp_expires_at) < new Date()) {
+        throw new Error('El código ha expirado');
+      }
 
       await supabase
         .from(tableName)
