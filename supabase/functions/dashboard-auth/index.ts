@@ -27,33 +27,40 @@ serve(async (req) => {
       let tableName = '';
 
       if (isUUID) {
-        const { data: profile } = await supabase.from('profiles').select('whatsapp_number').eq('id', token).single();
-        ownerNumber = profile?.whatsapp_number;
-        tableName = 'profiles';
-      } else {
+        const { data: profile } = await supabase.from('profiles').select('whatsapp_number').eq('id', token).maybeSingle();
+        if (profile) {
+          ownerNumber = profile.whatsapp_number;
+          tableName = 'profiles';
+        }
+      } 
+      
+      if (!tableName) {
         const { data: tokenData } = await supabase
           .from('report_tokens')
-          .select('stores (profiles (whatsapp_number))')
+          .select('token, stores (profiles (whatsapp_number))')
           .eq('token', token)
-          .single();
-        ownerNumber = (tokenData as any)?.stores?.profiles?.whatsapp_number;
-        tableName = 'report_tokens';
+          .maybeSingle();
+        
+        if (tokenData) {
+          ownerNumber = (tokenData as any)?.stores?.profiles?.whatsapp_number;
+          tableName = 'report_tokens';
+        }
       }
 
-      // Generar código de 6 dígitos
+      if (!ownerNumber || !tableName) throw new Error('Acceso no encontrado');
+
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + 5); // 5 minutos de validez
+      expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
       await supabase
-        .from('report_tokens')
+        .from(tableName)
         .update({ 
           otp_code: otp, 
           otp_expires_at: expiresAt.toISOString() 
         })
-        .eq('token', token);
+        .eq(tableName === 'profiles' ? 'id' : 'token', token);
 
-      // Enviar por WhatsApp
       await fetch(`https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_ID}/messages`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
@@ -61,49 +68,31 @@ serve(async (req) => {
           messaging_product: 'whatsapp',
           to: ownerNumber,
           type: 'text',
-          text: { body: `🔐 Tu código de acceso al Dashboard es: *${otp}*\n\nEste código vence en 5 minutos.` }
+          text: { body: `🔐 Código de acceso: *${otp}*` }
         })
       });
 
-      return new Response(JSON.stringify({ message: 'Código enviado' }), { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200 
-      });
+      return new Response(JSON.stringify({ message: 'Enviado' }), { headers: corsHeaders });
     }
 
-    // 2. VERIFICAR CÓDIGO (Verify OTP)
+    // 2. VERIFICAR CÓDIGO
     if (action === 'verify-otp') {
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token);
-      const tableName = isUUID ? 'profiles' : 'report_tokens';
-      const idCol = isUUID ? 'id' : 'token';
+      const { data: profEntry } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').eq('id', token).eq('otp_code', code).maybeSingle();
+      const { data: tokEntry } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').eq('token', token).eq('otp_code', code).maybeSingle();
 
-      // console.log(`[VERIFY] Table: ${tableName}, ID: ${token}, Col: ${idCol}, Code: ${code}`);
+      const entry = profEntry || tokEntry;
+      const tableName = profEntry ? 'profiles' : 'report_tokens';
+      const idCol = profEntry ? 'id' : 'token';
 
-      const { data: entry, error } = await supabase
-        .from(tableName)
-        .select('otp_code, otp_expires_at')
-        .eq(idCol, token)
-        .single();
+      if (!entry) throw new Error('Código incorrecto o no encontrado');
+      if (new Date(entry.otp_expires_at) < new Date()) throw new Error('Código expirado');
 
-      if (error || !entry) throw new Error('No se encontró el registro de acceso');
-      
-      if (entry.otp_code !== code) {
-        throw new Error('Código incorrecto');
-      }
+      await supabase.from(tableName).update({ 
+        otp_verified_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString() 
+      }).eq(idCol, token);
 
-      if (new Date(entry.otp_expires_at) < new Date()) {
-        throw new Error('El código ha expirado');
-      }
-
-      await supabase
-        .from(tableName)
-        .update({ 
-          otp_verified_at: new Date().toISOString(),
-          last_activity_at: new Date().toISOString() 
-        })
-        .eq(idCol, token);
-
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
     }
 
     throw new Error('Acción no reconocida');
