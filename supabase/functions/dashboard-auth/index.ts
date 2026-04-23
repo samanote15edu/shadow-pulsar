@@ -20,33 +20,31 @@ serve(async (req) => {
   const { action, token, code } = await req.json();
 
   try {
-    // 1. SOLICITAR CÓDIGO (Request OTP)
+    // 1. SOLICITAR CÓDIGO
     if (action === 'request-otp') {
-      const lower = token?.toLowerCase();
-      const upper = token?.toUpperCase();
       let ownerNumber = '';
       let tableName = '';
-      let usedId = token;
+      let fullId = '';
 
-      // Buscar en Profiles
+      // Buscar por ID exacto o Prefijo en Profiles
       const { data: profile } = await supabase.from('profiles').select('id, whatsapp_number')
-        .or(`id.eq.${lower},id.eq.${upper}`)
+        .or(`id.eq.${token},id.ilike.${token}%`)
         .maybeSingle();
 
       if (profile) {
         ownerNumber = profile.whatsapp_number;
         tableName = 'profiles';
-        usedId = profile.id;
+        fullId = profile.id;
       } else {
-        // Buscar en Tokens
+        // Buscar en report_tokens
         const { data: tokenData } = await supabase.from('report_tokens').select('token, stores (profiles (whatsapp_number))')
-          .or(`token.eq.${token},token.eq.${lower},token.eq.${upper}`)
+          .or(`token.eq.${token},token.ilike.${token}%`)
           .maybeSingle();
         
         if (tokenData) {
           ownerNumber = (tokenData as any)?.stores?.profiles?.whatsapp_number;
           tableName = 'report_tokens';
-          usedId = tokenData.token;
+          fullId = tokenData.token;
         }
       }
 
@@ -54,12 +52,12 @@ serve(async (req) => {
 
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+      expiresAt.setMinutes(expiresAt.getMinutes() + 15);
 
       await supabase.from(tableName).update({ 
         otp_code: otp, 
         otp_expires_at: expiresAt.toISOString() 
-      }).eq(tableName === 'profiles' ? 'id' : 'token', usedId);
+      }).eq(tableName === 'profiles' ? 'id' : 'token', fullId);
 
       await fetch(`https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_ID}/messages`, {
         method: 'POST',
@@ -68,49 +66,36 @@ serve(async (req) => {
           messaging_product: 'whatsapp',
           to: ownerNumber,
           type: 'text',
-          text: { body: `🔐 Código de acceso: *${otp}*` }
+          text: { body: `🔐 Código: *${otp}*` }
         })
       });
 
-      return new Response(JSON.stringify({ message: 'Enviado' }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ message: 'OK', id: fullId }), { headers: corsHeaders });
     }
 
     // 2. VERIFICAR CÓDIGO
     if (action === 'verify-otp') {
-      const lowerToken = token?.toLowerCase();
-      const upperToken = token?.toUpperCase();
-
-      // Buscar en perfiles (probando ambas versiones de caja)
-      let { data: entry } = await supabase.from('profiles').select('id, otp_code, otp_expires_at')
-        .or(`id.eq.${lowerToken},id.eq.${upperToken}`)
+      const { data: profEntry } = await supabase.from('profiles').select('id, otp_code, otp_expires_at')
+        .or(`id.eq.${token},id.ilike.${token}%`)
         .maybeSingle();
       
-      let table = 'profiles';
-      let idCol = 'id';
+      const { data: tokEntry } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at')
+        .or(`token.eq.${token},token.ilike.${token}%`)
+        .maybeSingle();
 
-      // Si no, buscar en report_tokens
-      if (!entry) {
-        const { data: tokEntry } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at')
-          .or(`token.eq.${token},token.eq.${lowerToken},token.eq.${upperToken}`)
-          .maybeSingle();
-        if (tokEntry) {
-          entry = { id: tokEntry.token, otp_code: tokEntry.otp_code, otp_expires_at: tokEntry.otp_expires_at };
-          table = 'report_tokens';
-          idCol = 'token';
-        }
-      }
+      const entry = profEntry || tokEntry;
+      const table = profEntry ? 'profiles' : 'report_tokens';
+      const idCol = profEntry ? 'id' : 'token';
+      const matchId = profEntry ? profEntry.id : tokEntry?.token;
 
-      if (!entry) throw new Error(`ID no encontrado: ${token?.substring(0, 8)}`);
-      
+      if (!entry) throw new Error(`ID no reconocido: ${token?.substring(0, 8)}`);
       if (entry.otp_code !== code) throw new Error('Código incorrecto');
       if (new Date(entry.otp_expires_at) < new Date()) throw new Error('Código expirado');
 
-      const { error: updErr } = await supabase.from(table).update({ 
+      await supabase.from(table).update({ 
         otp_verified_at: new Date().toISOString(),
         last_activity_at: new Date().toISOString() 
-      }).eq(idCol, entry.id);
-
-      if (updErr) throw new Error('Error al actualizar');
+      }).eq(idCol, matchId);
 
       return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
     }
