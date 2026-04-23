@@ -52,18 +52,28 @@ serve(async (req) => {
 
     // 2. VERIFICAR CÓDIGO
     if (action === 'verify-otp') {
-      const now = new Date().toISOString();
-      const { data: p } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').eq('otp_code', code).gt('otp_expires_at', now).maybeSingle();
-      const { data: t } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').eq('otp_code', code).gt('otp_expires_at', now).maybeSingle();
+      const now = new Date().getTime();
+      
+      // Traemos todos los registros con código para buscar manualmente en JS
+      const { data: ps } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').not('otp_code', 'is', null);
+      const { data: ts } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').not('otp_code', 'is', null);
+
+      const p = ps?.find(x => x.otp_code === code && new Date(x.otp_expires_at).getTime() > now);
+      const t = ts?.find(x => x.otp_code === code && new Date(x.otp_expires_at).getTime() > now);
 
       const entry = p || t;
       const table = p ? 'profiles' : 'report_tokens';
       const idCol = p ? 'id' : 'token';
       const realId = p ? p.id : t?.token;
 
-      if (!entry) throw new Error(`El código ${code} no es válido o ha expirado`);
+      if (!entry) throw new Error(`El código "${code}" no existe o ya venció`);
       
-      await supabase.from(table).update({ otp_verified_at: new Date().toISOString(), last_activity_at: new Date().toISOString() }).eq(idCol, realId);
+      const { error: finalErr } = await supabase.from(table).update({ 
+        otp_verified_at: new Date().toISOString(), 
+        last_activity_at: new Date().toISOString() 
+      }).eq(idCol, realId);
+
+      if (finalErr) throw new Error(`Fallo confirmación: ${finalErr.message}`);
 
       return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
     }
