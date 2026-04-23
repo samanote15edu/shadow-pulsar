@@ -57,7 +57,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         // 2FA CHECK
         if (targetUserId) {
-          const { data: profile } = await supabase.from('profiles').select('otp_verified_at, last_activity_at, role').eq('id', targetUserId).single();
+          const { data: profile } = await supabase.from('profiles').select('otp_verified_at, role').eq('id', targetUserId).single();
           if (profile && profile.role === 'owner') {
             const now = new Date();
             const lastVerify = profile.otp_verified_at ? new Date(profile.otp_verified_at) : null;
