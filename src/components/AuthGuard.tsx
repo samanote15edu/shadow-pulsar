@@ -58,7 +58,10 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
       setOtpMessage(errorMsg || 'Código incorrecto ❌');
     } else if (data?.success) {
       setIsVerified(true);
-      window.location.reload(); 
+      setOtpMessage('¡Acceso concedido! Entrando...');
+      setTimeout(() => {
+        window.location.reload(); 
+      }, 1500);
     } else {
       setOtpMessage('Error de verificación');
     }
