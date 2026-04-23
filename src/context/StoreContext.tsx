@@ -60,9 +60,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           const { data: profile } = await supabase.from('profiles').select('otp_verified_at, last_activity_at, role').eq('id', targetUserId).single();
           if (profile && profile.role === 'owner') {
             const now = new Date();
-            const lastActivity = profile.last_activity_at ? new Date(profile.last_activity_at) : null;
-            const isFresh = lastActivity && (now.getTime() - lastActivity.getTime()) < 20 * 60 * 1000;
-            setIsVerified(!!(profile.otp_verified_at && isFresh));
+            const lastVerify = profile.otp_verified_at ? new Date(profile.otp_verified_at) : null;
+            // Consider session fresh for 24 hours after verification
+            const isFresh = lastVerify && (now.getTime() - lastVerify.getTime()) < 24 * 60 * 60 * 1000;
+            setIsVerified(!!isFresh);
           } else if (profile?.role === 'employee') {
             setIsVerified(true); // Employees don't 2FA for now
           }
