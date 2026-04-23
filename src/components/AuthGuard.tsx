@@ -26,15 +26,22 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
     const params = new URLSearchParams(window.location.search);
     const u = params.get('u') || user?.id;
     if (!u) return;
-    
+
     setIsVerifying(true);
-    setOtpMessage('Enviando código...');
-    const { error } = await supabase.functions.invoke('dashboard-auth', {
+    setOtpMessage('Generando nuevo código...');
+    
+    const { data, error } = await supabase.functions.invoke('dashboard-auth', {
       body: { action: 'request-otp', token: u }
     });
+
     setIsVerifying(false);
-    if (error) setOtpMessage('Error enviando el código. Reintenta.');
-    else setOtpMessage('Código enviado a tu WhatsApp ✅');
+    
+    if (error) {
+      const errorMsg = await error.context?.json()?.then((j: any) => j.error).catch(() => 'Error de conexión');
+      setOtpMessage(`${errorMsg || 'Error al solicitar código'} ❌`);
+    } else {
+      setOtpMessage('Código enviado a tu WhatsApp ✅');
+    }
   };
 
   const handleVerifyOTP = async () => {
