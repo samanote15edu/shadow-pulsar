@@ -25,11 +25,7 @@ interface StoreContextType {
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-const DEMO_STORE: Store = {
-  id: 'demo-123',
-  name: 'Abarrotes "La Esperanza" (Demo)',
-  address: 'Calle Ficticia 123, MX'
-};
+
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [stores, setStores] = useState<Store[]>([]);
