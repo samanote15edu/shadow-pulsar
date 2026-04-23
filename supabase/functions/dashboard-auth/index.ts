@@ -32,15 +32,27 @@ serve(async (req) => {
       if (!ownerNumber || !table) throw new Error(`Sin acceso para: ${token?.substring(0, 8)}`);
 
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiresAt = new Date(Date.now() + 15 * 60000).toISOString();
+      const expiresAt = new Date(Date.now() + 30 * 60000).toISOString();
 
-      await supabase.from(table).update({ otp_code: otp, otp_expires_at: expiresAt }).eq(table === 'profiles' ? 'id' : 'token', idVal);
+      const { error: saveError } = await supabase.from(table).update({ 
+        otp_code: otp, 
+        otp_expires_at: expiresAt 
+      }).eq(table === 'profiles' ? 'id' : 'token', idVal);
 
-      await fetch(`https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_ID}/messages`, {
+      if (saveError) {
+        throw new Error(`Error al guardar en BD: ${saveError.message} (Tabla: ${table})`);
+      }
+
+      const waRes = await fetch(`https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_ID}/messages`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ messaging_product: 'whatsapp', to: ownerNumber, type: 'text', text: { body: `🔐 Código: *${otp}*` } })
       });
+
+      if (!waRes.ok) {
+        const waErr = await waRes.json();
+        throw new Error(`Error WhatsApp: ${waErr.error?.message || 'Desconocido'}`);
+      }
 
       return new Response(JSON.stringify({ message: 'OK' }), { headers: corsHeaders });
     }
