@@ -22,23 +22,23 @@ serve(async (req) => {
   try {
     // 1. SOLICITAR CÓDIGO (Request OTP)
     if (action === 'request-otp') {
-      // Buscar el token y el dueño de la tienda
-      const { data: tokenData, error: tokenError } = await supabase
-        .from('report_tokens')
-        .select(`
-          store_id,
-          stores (
-            owner_id,
-            profiles (whatsapp_number)
-          )
-        `)
-        .eq('token', token)
-        .single();
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token);
+      let ownerNumber = '';
+      let tableName = '';
 
-      if (tokenError || !tokenData) throw new Error('Token de acceso inválido');
-
-      const ownerNumber = (tokenData.stores as any)?.profiles?.whatsapp_number;
-      if (!ownerNumber) throw new Error('No se encontró el número del dueño');
+      if (isUUID) {
+        const { data: profile } = await supabase.from('profiles').select('whatsapp_number').eq('id', token).single();
+        ownerNumber = profile?.whatsapp_number;
+        tableName = 'profiles';
+      } else {
+        const { data: tokenData } = await supabase
+          .from('report_tokens')
+          .select('stores (profiles (whatsapp_number))')
+          .eq('token', token)
+          .single();
+        ownerNumber = (tokenData as any)?.stores?.profiles?.whatsapp_number;
+        tableName = 'report_tokens';
+      }
 
       // Generar código de 6 dígitos
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -71,35 +71,30 @@ serve(async (req) => {
       });
     }
 
-    // 2. VERIFICAR CÓDIGO (Verify OTP)
     if (action === 'verify-otp') {
-      const { data: tokenData, error: tokenError } = await supabase
-        .from('report_tokens')
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token);
+      const tableName = isUUID ? 'profiles' : 'report_tokens';
+      const idCol = isUUID ? 'id' : 'token';
+
+      const { data: entry, error } = await supabase
+        .from(tableName)
         .select('*')
-        .eq('token', token)
+        .eq(idCol, token)
         .eq('otp_code', code)
         .single();
 
-      if (tokenError || !tokenData) throw new Error('Código incorrecto');
+      if (error || !entry) throw new Error('Código incorrecto');
+      if (new Date(entry.otp_expires_at) < new Date()) throw new Error('Expirado');
 
-      // Verificar expiración
-      if (new Date(tokenData.otp_expires_at) < new Date()) {
-        throw new Error('El código ha expirado. Pide uno nuevo.');
-      }
-
-      // Marcar como verificado
       await supabase
-        .from('report_tokens')
+        .from(tableName)
         .update({ 
           otp_verified_at: new Date().toISOString(),
           last_activity_at: new Date().toISOString() 
         })
-        .eq('token', token);
+        .eq(idCol, token);
 
-      return new Response(JSON.stringify({ success: true }), { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200 
-      });
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     throw new Error('Acción no reconocida');
