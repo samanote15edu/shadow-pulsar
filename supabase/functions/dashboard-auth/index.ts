@@ -22,14 +22,20 @@ serve(async (req) => {
   try {
     // 1. SOLICITAR CÓDIGO
     if (action === 'request-otp') {
-      const { data: profile } = await supabase.from('profiles').select('id, whatsapp_number').or(`id.eq.${token},id.ilike.${token}%`).maybeSingle();
-      const { data: tokenData } = await supabase.from('report_tokens').select('token, stores (profiles (whatsapp_number))').or(`token.eq.${token},token.ilike.${token}%`).maybeSingle();
+      const { data: profile, error: pErr } = await supabase.from('profiles').select('id, whatsapp_number').or(`id.eq.${token},id.ilike.${token}%`).maybeSingle();
+      const { data: tokenData, error: tErr } = await supabase.from('report_tokens').select('token, stores (profiles (whatsapp_number))').or(`token.eq.${token},token.ilike.${token}%`).maybeSingle();
+
+      if (pErr || tErr) {
+        throw new Error(`Fallo DB: ${pErr?.message || tErr?.message} (ID: ${token?.substring(0, 8)})`);
+      }
 
       const ownerNumber = profile?.whatsapp_number || (tokenData as any)?.stores?.profiles?.whatsapp_number;
       const table = profile ? 'profiles' : (tokenData ? 'report_tokens' : null);
       const idVal = profile ? profile.id : (tokenData ? tokenData.token : null);
 
-      if (!ownerNumber || !table) throw new Error(`Sin acceso para: ${token?.substring(0, 8)}`);
+      if (!ownerNumber || !table) {
+        throw new Error(`No hallado para ${token?.substring(0, 8)} (P:${!!profile}, T:${!!tokenData})`);
+      }
 
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = new Date(Date.now() + 30 * 60000).toISOString();
