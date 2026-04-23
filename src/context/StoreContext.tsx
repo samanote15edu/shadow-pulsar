@@ -48,7 +48,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         
         // --- 1. MAGIC LINK ENTRY (u and/or s parameters) ---
         const urlStoreId = params.get('s')?.trim() || null;
-        const magicUserId = params.get('u')?.trim() || null;
+        let magicUserId = params.get('u')?.trim() || null;
+
+        // Persist and retrieve magic user ID
+        if (magicUserId) {
+          localStorage.setItem('magic_u', magicUserId);
+        } else {
+          magicUserId = localStorage.getItem('magic_u');
+        }
 
         // AUTH CHECK
         const { data: authData } = await supabase.auth.getUser();
@@ -200,6 +207,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const logout = async () => {
     localStorage.removeItem('last_store_id');
+    localStorage.removeItem('magic_u');
     await supabase.auth.signOut();
     window.location.href = '/';
   };
