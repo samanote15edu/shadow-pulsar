@@ -22,75 +22,49 @@ serve(async (req) => {
   try {
     // 1. SOLICITAR CÓDIGO
     if (action === 'request-otp') {
-      const { data: profile, error: pErr } = await supabase.from('profiles').select('id, whatsapp_number').or(`id.eq.${token},id.ilike.${token}%`).maybeSingle();
-      const { data: tokenData, error: tErr } = await supabase.from('report_tokens').select('token, stores (profiles (whatsapp_number))').or(`token.eq.${token},token.ilike.${token}%`).maybeSingle();
+      // Búsqueda limpia por ID exacto (evita el error de tipo UUID)
+      const { data: p, error: pErr } = await supabase.from('profiles').select('id, whatsapp_number').eq('id', token).maybeSingle();
+      const { data: t, error: tErr } = await supabase.from('report_tokens').select('token, stores (profiles (whatsapp_number))').eq('token', token).maybeSingle();
 
-      if (pErr || tErr) {
-        throw new Error(`Fallo DB: ${pErr?.message || tErr?.message} (ID: ${token?.substring(0, 8)})`);
-      }
+      if (pErr || tErr) throw new Error(`Error BD: ${pErr?.message || tErr?.message}`);
 
-      const ownerNumber = profile?.whatsapp_number || (tokenData as any)?.stores?.profiles?.whatsapp_number;
-      const table = profile ? 'profiles' : (tokenData ? 'report_tokens' : null);
-      const idVal = profile ? profile.id : (tokenData ? tokenData.token : null);
+      const ownerNumber = p?.whatsapp_number || (t as any)?.stores?.profiles?.whatsapp_number;
+      const table = p ? 'profiles' : (t ? 'report_tokens' : null);
+      const idVal = p ? p.id : (t ? t.token : null);
 
-      if (!ownerNumber || !table) {
-        throw new Error(`No hallado para ${token?.substring(0, 8)} (P:${!!profile}, T:${!!tokenData})`);
-      }
+      if (!ownerNumber || !table) throw new Error(`ID no registrado: ${token?.substring(0, 8)}`);
 
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = new Date(Date.now() + 30 * 60000).toISOString();
 
-      const { error: saveError } = await supabase.from(table).update({ 
-        otp_code: otp, 
-        otp_expires_at: expiresAt 
-      }).eq(table === 'profiles' ? 'id' : 'token', idVal);
+      const { error: saveError } = await supabase.from(table).update({ otp_code: otp, otp_expires_at: expiresAt }).eq(table === 'profiles' ? 'id' : 'token', idVal);
+      if (saveError) throw new Error(`Error de guardado: ${saveError.message}`);
 
-      if (saveError) {
-        throw new Error(`Error al guardar en BD: ${saveError.message} (Tabla: ${table})`);
-      }
-
-      const waRes = await fetch(`https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_ID}/messages`, {
+      await fetch(`https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_ID}/messages`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ messaging_product: 'whatsapp', to: ownerNumber, type: 'text', text: { body: `🔐 Código: *${otp}*` } })
       });
-
-      if (!waRes.ok) {
-        const waErr = await waRes.json();
-        throw new Error(`Error WhatsApp: ${waErr.error?.message || 'Desconocido'}`);
-      }
 
       return new Response(JSON.stringify({ message: 'OK' }), { headers: corsHeaders });
     }
 
     // 2. VERIFICAR CÓDIGO
     if (action === 'verify-otp') {
-      // Búsqueda AGRESIVA: No nos importa el ID, buscamos cualquier registro con ese código que no haya vencido
       const now = new Date().toISOString();
-      
-      // 1. Probar en Profiles
       const { data: p } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').eq('otp_code', code).gt('otp_expires_at', now).maybeSingle();
-      
-      // 2. Probar en Report Tokens (si no se halló en profiles)
-      let t = null;
-      if (!p) {
-        const { data: tokData } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').eq('otp_code', code).gt('otp_expires_at', now).maybeSingle();
-        t = tokData;
-      }
+      const { data: t } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').eq('otp_code', code).gt('otp_expires_at', now).maybeSingle();
 
       const entry = p || t;
       const table = p ? 'profiles' : 'report_tokens';
       const idCol = p ? 'id' : 'token';
       const realId = p ? p.id : t?.token;
 
-      if (!entry) throw new Error(`Código ${code} no hallado o vencido`);
+      if (!entry) throw new Error(`Código ${code} no hallado`);
       
-      await supabase.from(table).update({ 
-        otp_verified_at: new Date().toISOString(),
-        last_activity_at: new Date().toISOString() 
-      }).eq(idCol, realId);
+      await supabase.from(table).update({ otp_verified_at: new Date().toISOString(), last_activity_at: new Date().toISOString() }).eq(idCol, realId);
 
-      return new Response(JSON.stringify({ success: true, table_used: table }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
     }
 
     throw new Error('Acción no reconocida');
