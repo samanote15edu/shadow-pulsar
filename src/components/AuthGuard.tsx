@@ -30,7 +30,7 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
     setIsVerifying(true);
     setOtpMessage('Generando nuevo código...');
     
-    const { data, error } = await supabase.functions.invoke('dashboard-auth', {
+    const { error } = await supabase.functions.invoke('dashboard-auth', {
       body: { action: 'request-otp', token: u }
     });
 
