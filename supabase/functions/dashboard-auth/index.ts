@@ -22,32 +22,19 @@ serve(async (req) => {
   try {
     // 1. SOLICITAR CÓDIGO
     if (action === 'request-otp') {
-      let profile = null;
-      let tokenData = null;
-
-      // Intento 1: Perfil por ID directo
-      try {
-        const { data } = await supabase.from('profiles').select('id, whatsapp_number').eq('id', token).maybeSingle();
-        profile = data;
-      } catch (e) {}
-
-      // Intento 2: Reporte por Token directo
-      try {
-        const { data } = await supabase.from('report_tokens').select('token, stores (profiles (whatsapp_number))').eq('token', token).maybeSingle();
-        tokenData = data;
-      } catch (e) {}
+      const { data: profile } = await supabase.from('profiles').select('id, whatsapp_number').or(`id.eq.${token},id.ilike.${token}%`).maybeSingle();
+      const { data: tokenData } = await supabase.from('report_tokens').select('token, stores (profiles (whatsapp_number))').or(`token.eq.${token},token.ilike.${token}%`).maybeSingle();
 
       const ownerNumber = profile?.whatsapp_number || (tokenData as any)?.stores?.profiles?.whatsapp_number;
       const table = profile ? 'profiles' : (tokenData ? 'report_tokens' : null);
       const idVal = profile ? profile.id : (tokenData ? tokenData.token : null);
 
-      if (!ownerNumber || !table) throw new Error(`Acceso denegado p/ ID: ${token?.substring(0, 8)}`);
+      if (!ownerNumber || !table) throw new Error(`Sin acceso para: ${token?.substring(0, 8)}`);
 
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + 15);
+      const expiresAt = new Date(Date.now() + 15 * 60000).toISOString();
 
-      await supabase.from(table).update({ otp_code: otp, otp_expires_at: expiresAt.toISOString() }).eq(table === 'profiles' ? 'id' : 'token', idVal);
+      await supabase.from(table).update({ otp_code: otp, otp_expires_at: expiresAt }).eq(table === 'profiles' ? 'id' : 'token', idVal);
 
       await fetch(`https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_ID}/messages`, {
         method: 'POST',
@@ -60,32 +47,22 @@ serve(async (req) => {
 
     // 2. VERIFICAR CÓDIGO
     if (action === 'verify-otp') {
-      let entry = null;
-      let table = '';
-      let idCol = '';
+      const { data: p } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').or(`id.eq.${token},id.ilike.${token}%`).maybeSingle();
+      const { data: t } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').or(`token.eq.${token},token.ilike.${token}%`).maybeSingle();
 
-      // Buscar en Profiles
-      try {
-        const { data } = await supabase.from('profiles').select('id, otp_code, otp_expires_at').eq('id', token).maybeSingle();
-        if (data) { entry = data; table = 'profiles'; idCol = 'id'; }
-      } catch (e) {}
+      const entry = p || t;
+      const table = p ? 'profiles' : 'report_tokens';
+      const idCol = p ? 'id' : 'token';
+      const realId = p ? p.id : t?.token;
 
-      // Buscar en Tokens
-      if (!entry) {
-        try {
-          const { data } = await supabase.from('report_tokens').select('token, otp_code, otp_expires_at').eq('token', token).maybeSingle();
-          if (data) { entry = { id: data.token, ...data }; table = 'report_tokens'; idCol = 'token'; }
-        } catch (e) {}
-      }
-
-      if (!entry) throw new Error(`ID Desconocido: ${token?.substring(0, 8)}`);
-      if (entry.otp_code !== code) throw new Error('Código incorrecto');
-      if (new Date(entry.otp_expires_at) < new Date()) throw new Error('Código expirado');
+      if (!entry) throw new Error(`Registro no hallado (${token?.substring(0, 8)})`);
+      if (entry.otp_code !== code) throw new Error('Código no coincide');
+      if (new Date(entry.otp_expires_at) < new Date()) throw new Error('Código vencido');
 
       await supabase.from(table).update({ 
         otp_verified_at: new Date().toISOString(),
         last_activity_at: new Date().toISOString() 
-      }).eq(idCol, entry.id);
+      }).eq(idCol, realId);
 
       return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
     }
