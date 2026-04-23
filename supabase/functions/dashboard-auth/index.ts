@@ -22,23 +22,24 @@ serve(async (req) => {
   try {
     // 1. SOLICITAR CÓDIGO
     if (action === 'request-otp') {
-      // Búsqueda limpia por ID exacto (evita el error de tipo UUID)
-      const { data: p, error: pErr } = await supabase.from('profiles').select('id, whatsapp_number').eq('id', token).maybeSingle();
-      const { data: t, error: tErr } = await supabase.from('report_tokens').select('token, stores (profiles (whatsapp_number))').eq('token', token).maybeSingle();
+      // Obtenemos todos los candidatos y filtramos en JS para evitar errores de tipo UUID
+      const { data: allProfiles } = await supabase.from('profiles').select('id, whatsapp_number');
+      const { data: allTokens } = await supabase.from('report_tokens').select('token, stores (profiles (whatsapp_number))');
 
-      if (pErr || tErr) throw new Error(`Error BD: ${pErr?.message || tErr?.message}`);
+      const p = allProfiles?.find(x => x.id.toLowerCase().startsWith(token.toLowerCase()));
+      const t = allTokens?.find(x => x.token.toLowerCase().startsWith(token.toLowerCase()));
 
       const ownerNumber = p?.whatsapp_number || (t as any)?.stores?.profiles?.whatsapp_number;
       const table = p ? 'profiles' : (t ? 'report_tokens' : null);
       const idVal = p ? p.id : (t ? t.token : null);
 
-      if (!ownerNumber || !table) throw new Error(`ID no registrado: ${token?.substring(0, 8)}`);
+      if (!ownerNumber || !table) throw new Error(`ID "${token}" no reconocido`);
 
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = new Date(Date.now() + 30 * 60000).toISOString();
 
       const { error: saveError } = await supabase.from(table).update({ otp_code: otp, otp_expires_at: expiresAt }).eq(table === 'profiles' ? 'id' : 'token', idVal);
-      if (saveError) throw new Error(`Error de guardado: ${saveError.message}`);
+      if (saveError) throw new Error(`Error DB: ${saveError.message}`);
 
       await fetch(`https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_ID}/messages`, {
         method: 'POST',
@@ -60,7 +61,7 @@ serve(async (req) => {
       const idCol = p ? 'id' : 'token';
       const realId = p ? p.id : t?.token;
 
-      if (!entry) throw new Error(`Código ${code} no hallado`);
+      if (!entry) throw new Error(`El código ${code} no es válido o ha expirado`);
       
       await supabase.from(table).update({ otp_verified_at: new Date().toISOString(), last_activity_at: new Date().toISOString() }).eq(idCol, realId);
 
