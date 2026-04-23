@@ -70,44 +70,48 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-white font-sans">
       <div className="max-w-md w-full glass-pane p-10 rounded-[40px] text-center border-white/5 shadow-2xl">
-        <div className="w-24 h-24 bg-sky-500/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-sky-500/20 shadow-lg shadow-sky-500/10">
-          <span className="text-5xl">🔐</span>
+        <div className="w-20 h-20 bg-sky-500/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-sky-500/20 shadow-lg shadow-sky-500/10">
+          <span className="text-4xl">🔐</span>
         </div>
-        <h2 className="text-3xl font-black uppercase tracking-tighter mb-3 italic bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">Acceso Protegido</h2>
-        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-10 leading-relaxed opacity-70">
-          Esta zona contiene información financiera sensible. Por favor, verifica tu identidad con el código enviado a tu WhatsApp.
+        <h2 className="text-2xl font-black uppercase tracking-tighter mb-2 italic bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">Acceso Protegido</h2>
+        <p className="text-slate-400 text-[9px] font-black uppercase tracking-widest mb-8 leading-relaxed opacity-70">
+          Ingresa el código de 6 dígitos que te enviamos por WhatsApp para desbloquear tus finanzas.
         </p>
 
-        {!otpMessage.includes('enviado') ? (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+          <input 
+            type="text" 
+            maxLength={6}
+            placeholder="000 000"
+            value={otpCode}
+            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+            className="w-full bg-slate-900 border-2 border-white/10 p-5 rounded-3xl text-center text-4xl font-black tracking-[12px] focus:border-sky-500 outline-none transition-all placeholder:opacity-20 shadow-inner"
+          />
+          
           <button 
-            onClick={handleRequestOTP}
-            disabled={isVerifying}
-            className="w-full bg-sky-500 text-black py-5 rounded-3xl font-black uppercase tracking-widest text-xs hover:bg-sky-400 transition-all active:scale-95 disabled:opacity-50 shadow-2xl shadow-sky-500/20"
+            onClick={handleVerifyOTP}
+            disabled={isVerifying || otpCode.length !== 6}
+            className="w-full bg-white text-black py-5 rounded-3xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-100 transition-all active:scale-95 disabled:opacity-50"
           >
-            {isVerifying ? 'Generando...' : 'Obtener código de acceso'}
+            {isVerifying ? 'Autenticando...' : 'Desbloquear Panel'}
           </button>
-        ) : (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-            <input 
-              type="text" 
-              maxLength={6}
-              placeholder="000 000"
-              value={otpCode}
-              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-              className="w-full bg-slate-900 border-2 border-white/10 p-5 rounded-3xl text-center text-4xl font-black tracking-[12px] focus:border-sky-500 outline-none transition-all placeholder:opacity-20 shadow-inner"
-            />
-            <button 
-              onClick={handleVerifyOTP}
-              disabled={isVerifying || otpCode.length !== 6}
-              className="w-full bg-white text-black py-5 rounded-3xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-100 transition-all active:scale-95 disabled:opacity-50"
-            >
-              {isVerifying ? 'Autenticando...' : 'Desbloquear Panel'}
-            </button>
-            <button onClick={() => setOtpMessage('')} className="text-[10px] text-slate-500 font-black uppercase tracking-widest hover:text-slate-400 transition-colors">Solicitar nuevo código</button>
-          </div>
-        )}
 
-        {otpMessage && <p className="mt-8 text-[10px] font-black uppercase tracking-widest text-sky-400 italic animate-pulse">{otpMessage}</p>}
+          <div className="pt-4 border-t border-white/5">
+            <button 
+              onClick={handleRequestOTP}
+              disabled={isVerifying}
+              className="text-[9px] text-sky-500 font-black uppercase tracking-widest hover:text-sky-400 transition-colors"
+            >
+              {isVerifying ? 'Solicitando...' : '¿No tienes el código? Pedir uno nuevo'}
+            </button>
+          </div>
+        </div>
+
+        {otpMessage && (
+          <p className={`mt-6 text-[9px] font-black uppercase tracking-widest italic animate-pulse ${otpMessage.includes('✅') || otpMessage.includes('concedido') ? 'text-emerald-400' : 'text-red-400'}`}>
+            {otpMessage}
+          </p>
+        )}
       </div>
     </div>
   );
