@@ -50,7 +50,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onOpenScan }: DashboardProps) {
-  const { selectedStore, stores, setSelectedStore, loading, isDemo, userName, userRole, isVerified, setIsVerified, logout } = useStoreContext();
+  const { selectedStore, stores, setSelectedStore, loading, isDemo, userName, userRole, logout } = useStoreContext();
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [recentActivity, setRecentActivity] = useState<Transaction[]>([]);
@@ -62,46 +62,6 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-
-  // 2FA STATES (UI Only)
-  const [otpCode, setOtpCode] = useState('');
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [otpMessage, setOtpMessage] = useState('');
-
-  const [loadingInternal, setLoadingInternal] = useState(false);
-
-  const handleRequestOTP = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    const params = new URLSearchParams(window.location.search);
-    const u = params.get('u') || user?.id;
-    if (!u) return;
-    setIsVerifying(true);
-    setOtpMessage('Enviando código...');
-    const { error } = await supabase.functions.invoke('dashboard-auth', {
-      body: { action: 'request-otp', token: u }
-    });
-    setIsVerifying(false);
-    if (error) setOtpMessage('Error enviando el código. Reintenta.');
-    else setOtpMessage('Código enviado a tu WhatsApp ✅');
-  };
-
-  const handleVerifyOTP = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    const params = new URLSearchParams(window.location.search);
-    const u = params.get('u') || user?.id;
-    if (!u || otpCode.length !== 6) return;
-    setIsVerifying(true);
-    const { data, error } = await supabase.functions.invoke('dashboard-auth', {
-      body: { action: 'verify-otp', token: u, code: otpCode }
-    });
-    setIsVerifying(false);
-    if (error || !data.success) {
-      setOtpMessage('Código incorrecto ❌');
-    } else {
-      setIsVerified(true);
-      fetchDashboardData();
-    }
-  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

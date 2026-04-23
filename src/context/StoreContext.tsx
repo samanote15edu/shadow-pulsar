@@ -51,7 +51,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const magicUserId = params.get('u')?.trim() || null;
 
         // AUTH CHECK
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: authData } = await supabase.auth.getUser();
+        const user = authData?.user;
         const targetUserId = magicUserId || user?.id;
 
         // 2FA CHECK
@@ -61,7 +62,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const now = new Date();
             const lastActivity = profile.last_activity_at ? new Date(profile.last_activity_at) : null;
             const isFresh = lastActivity && (now.getTime() - lastActivity.getTime()) < 20 * 60 * 1000;
-            setIsVerified(!!profile.otp_verified_at && isFresh);
+            setIsVerified(!!(profile.otp_verified_at && isFresh));
           } else if (profile?.role === 'employee') {
             setIsVerified(true); // Employees don't 2FA for now
           }
@@ -147,11 +148,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         // --- 2. LOGGED IN SESSION ENTRY ---
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
+        const { data: sessionData } = await supabase.auth.getUser();
+        const sessionUser = sessionData?.user;
+        if (sessionUser) {
           setIsDemo(false);
-          const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-          const { data: storesList } = await supabase.from('stores').select('id, name, address, business_type').eq('owner_id', user.id);
+          const { data: profile } = await supabase.from('profiles').select('*').eq('id', sessionUser.id).maybeSingle();
+          const { data: storesList } = await supabase.from('stores').select('id, name, address, business_type').eq('owner_id', sessionUser.id);
           
           if (storesList && storesList.length > 0) {
             setStores(storesList);
@@ -163,7 +165,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             else if (saved) setSelectedStore(saved);
             else setSelectedStore(null);
             
-            setUserName(profile?.full_name || user.email || 'Dueño');
+            setUserName(profile?.full_name || sessionUser.email || 'Dueño');
           } else if (profile) {
             setUserRole(profile.role as any);
             setUserName(profile.full_name);
