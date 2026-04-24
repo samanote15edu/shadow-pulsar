@@ -751,8 +751,12 @@ serve(async (req) => {
               unit_price: cost,
               total_amount: cost * metadata.qty
             });
-            await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-            await sendWhatsAppMessage(from, `✅ *Surtido Completado*\n\nProducto: ${metadata.productName}\nNuevo Costo: $${cost}\nCantidad: +${metadata.qty}`);
+            await supabase.from('registration_states').update({ step: 'awaiting_inventory_demo_confirm' }).eq('whatsapp_number', from);
+            const successMsg = `✅ *Surtido Completado*\n\nProducto: ${metadata.productName}\nNuevo Costo: $${cost}\nCantidad: +${metadata.qty}\n\n¿Te gustaría ver cómo quedó tu inventario ahora mismo?`;
+            await sendWhatsAppButtons(from, successMsg, [
+              { id: 'yes', title: '¡SÍ! 📊' },
+              { id: 'no', title: 'Después ❌' }
+            ]);
           }
         }
       }
@@ -796,10 +800,25 @@ serve(async (req) => {
               unit_price: cost,
               total_amount: cost * metadata.qty
             });
-            await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-            await sendWhatsAppMessage(from, `✅ *¡Producto Registrado!*\n\n${prod.name}\nCosto: $${cost}\nVenta: $${sale}\nStock: ${metadata.qty}`);
+            await supabase.from('registration_states').update({ step: 'awaiting_inventory_demo_confirm' }).eq('whatsapp_number', from);
+            const successMsg = `✅ *¡Producto Registrado!*\n\n${prod.name}\nCosto: $${cost}\nVenta: $${sale}\nStock: ${metadata.qty}\n\n¿Te gustaría ver cómo quedó tu inventario ahora mismo?`;
+            await sendWhatsAppButtons(from, successMsg, [
+              { id: 'yes', title: '¡SÍ! 📊' },
+              { id: 'no', title: 'Después ❌' }
+            ]);
           }
         }
+      }
+
+      // ESTADO: Confirmación de Demo de Inventario (Post-Onboarding)
+      else if (step === 'awaiting_inventory_demo_confirm') {
+        if (isPositive) {
+          await sendWhatsAppMessage(from, "¡Perfecto! 💡 Para ver la magia, por favor escribe la palabra:\n\n*Inventario*");
+        } else {
+          await sendWhatsAppMessage(from, "Entendido. Puedes usar el menú o escribir 'Link' cuando gustes para ver tu panel.\n\n¡Mucho éxito en tu negocio! 🚀");
+        }
+        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+        return new Response('OK', { status: 200 });
       }
 
       // ESTADO: Confirmación de Ticket (Individual)
