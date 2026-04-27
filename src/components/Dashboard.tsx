@@ -420,6 +420,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
               name: newProd.name,
               current_stock: newProd.stock,
               base_price: newProd.price,
+              last_cost_price: newProd.cost,
               unit_of_measure: newProd.unit_of_measure,
               min_stock_alert: 5
             })
@@ -435,8 +436,8 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
               product_id: prod.id,
               type: 'restock',
               quantity_change: newProd.stock,
-              unit_price: 0,
-              total_amount: 0,
+              unit_price: newProd.cost,
+              total_amount: newProd.cost * newProd.stock,
               notes: 'Carga inicial desde Dashboard'
             });
           }

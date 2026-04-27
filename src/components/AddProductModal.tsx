@@ -3,13 +3,14 @@ import React, { useState } from 'react';
 interface AddProductModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAdd: (product: { name: string; stock: number; price: number; unit_of_measure: string }) => void;
+  onAdd: (product: { name: string; stock: number; price: number; cost: number; unit_of_measure: string }) => void;
 }
 
 const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAdd }) => {
   const [name, setName] = useState('');
   const [stock, setStock] = useState('');
   const [price, setPrice] = useState('');
+  const [cost, setCost] = useState('');
   const [unit, setUnit] = useState('pza');
 
   if (!isOpen) return null;
@@ -21,12 +22,14 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAd
       name,
       stock: parseInt(stock, 10),
       price: parseFloat(price),
+      cost: parseFloat(cost) || 0,
       unit_of_measure: unit
     });
     // Reset and close
     setName('');
     setStock('');
     setPrice('');
+    setCost('');
     setUnit('pza');
     onClose();
   };
@@ -83,16 +86,29 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAd
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Precio de Venta ($)</label>
-            <input 
-              type="number" 
-              step="0.1"
-              className="w-full bg-slate-900/50 border border-slate-700 rounded-2xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all"
-              placeholder="0.00"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-emerald-500 uppercase mb-2">Costo de Compra ($)</label>
+              <input 
+                type="number" 
+                step="0.1"
+                className="w-full bg-slate-900/50 border border-emerald-500/20 rounded-2xl px-4 py-3 text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all"
+                placeholder="0.00"
+                value={cost}
+                onChange={(e) => setCost(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-sky-500 uppercase mb-2">Precio de Venta ($)</label>
+              <input 
+                type="number" 
+                step="0.1"
+                className="w-full bg-slate-900/50 border border-sky-500/20 rounded-2xl px-4 py-3 text-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all font-bold"
+                placeholder="0.00"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="pt-4">
