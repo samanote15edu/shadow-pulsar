@@ -13,7 +13,7 @@ export interface FiadoItem {
 
 export interface CommandResponse {
   responseText: string;
-  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation' | 'awaiting_void_confirmation' | 'awaiting_physical_count' | 'awaiting_audit_selection' | 'awaiting_correction_amount' | 'awaiting_payment_confirmation' | 'awaiting_physical_cash' | 'awaiting_corte_confirmation' | 'awaiting_restock_qty_from_warning' | 'awaiting_cost_confirmation' | 'awaiting_price_confirmation';
+  nextStep?: 'awaiting_selection' | 'awaiting_confirmation' | 'awaiting_bulk_confirmation' | 'awaiting_fiado_approval' | 'awaiting_item_price' | 'awaiting_new_product_price' | 'awaiting_product_cost' | 'awaiting_new_product_details' | 'awaiting_similarity_confirmation' | 'awaiting_void_confirmation' | 'awaiting_physical_count' | 'awaiting_audit_selection' | 'awaiting_correction_amount' | 'awaiting_payment_confirmation' | 'awaiting_physical_cash' | 'awaiting_corte_confirmation' | 'awaiting_restock_qty_from_warning' | 'awaiting_cost_confirmation' | 'awaiting_price_confirmation' | 'awaiting_sale_items_guided' | 'awaiting_sale_qty_guided' | 'awaiting_restock_name_guided' | 'awaiting_restock_qty_guided';
   metadata?: any;
 }
 
