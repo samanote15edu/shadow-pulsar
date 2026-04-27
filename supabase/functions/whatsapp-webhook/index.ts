@@ -720,6 +720,67 @@ serve(async (req) => {
         }
       }
 
+      // ESTADO: Venta Guiada (Items)
+      else if (step === 'awaiting_sale_items_guided') {
+        const hasNumbers = /\d+/.test(text);
+        if (hasNumbers) {
+          // Si ya incluyó números (ej: "2 cocas"), procesamos como comando normal
+          const res = await executeCommand(text, supabase, profile.store_id, profile.role, from, profile.id);
+          if (res.nextStep) {
+            await supabase.from('registration_states').update({ 
+               step: res.nextStep, 
+               metadata: res.metadata,
+               updated_at: new Date().toISOString() 
+            }).eq('whatsapp_number', from);
+          } else {
+            await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          }
+          if (res.responseText) await sendWhatsAppMessage(from, res.responseText);
+        } else {
+          // No hay números, pedimos cantidad para este producto
+          const productName = text.trim();
+          await supabase.from('registration_states').update({
+            step: 'awaiting_sale_qty_guided',
+            metadata: { productName }
+          }).eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `🛍️ *Venta: ${productName}*\n\n¿Cuántas unidades se lleva el cliente?`);
+        }
+        return new Response('OK', { status: 200 });
+      }
+
+      // ESTADO: Venta Guiada (Cantidad)
+      else if (step === 'awaiting_sale_qty_guided') {
+        const qtyString = text.replace(/[^0-9]/g, '');
+        const qty = parseInt(qtyString);
+        if (isNaN(qty) || qty <= 0) {
+          await sendWhatsAppMessage(from, "❌ Por favor, envía un número válido para la cantidad (ej: 2).");
+          return new Response('OK', { status: 200 });
+        }
+        
+        // Re-inyectamos como comando completo (Ej: "2 cocas")
+        const proxyMsg = `${qty} ${metadata.productName}`;
+        const res = await executeCommand(proxyMsg, supabase, profile.store_id, profile.role, from, profile.id);
+        
+        if (res.nextStep) {
+          await supabase.from('registration_states').update({ 
+             step: res.nextStep, 
+             metadata: res.metadata,
+             updated_at: new Date().toISOString() 
+          }).eq('whatsapp_number', from);
+        } else {
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+        }
+        
+        if (res.responseText) {
+          if (res.nextStep === 'awaiting_confirmation') {
+            await sendWhatsAppButtons(from, res.responseText, [{ id: 'yes', title: 'SÍ ✅' }, { id: 'no', title: 'NO ❌' }]);
+          } else {
+            await sendWhatsAppMessage(from, res.responseText);
+          }
+        }
+        return new Response('OK', { status: 200 });
+      }
+
       // ESTADO: Costo de Producto
       else if (step === 'awaiting_product_cost') {
         const cost = parseFloat(text.replace(/[^0-9.]/g, ''));

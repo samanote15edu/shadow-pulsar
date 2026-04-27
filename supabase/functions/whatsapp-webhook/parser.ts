@@ -218,6 +218,15 @@ export async function executeCommand(
     }
   }
 
+  // 3.2 VENTA GUIADA
+  const saleTriggers = ['venta', 'ventas', 'venta:', 'ventas:'];
+  if (saleTriggers.includes(lowerMsg)) {
+    return {
+      responseText: "¡Perfecto! 🛍️ ¿Qué producto quieres vender? (Ej: '2 cocas' o solo 'cocas')",
+      nextStep: 'awaiting_sale_items_guided'
+    };
+  }
+
   // 4. BULK SALE SCANNER (Detects patterns like "2 cocas 1 gansito")
   // Regex looks for [Number] [Text] followed by another [Number] or end of string.
   const bulkRegex = /(\d+)\s+([a-zA-Z\xC0-\xFF\s]+?)(?=\s+\d+|\s*$)/g;
