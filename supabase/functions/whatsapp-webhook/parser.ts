@@ -81,7 +81,7 @@ export async function executeCommand(
      let report = "📦 *TU INVENTARIO ACTUAL*\n";
      report += "---------------------------\n";
      prods.forEach(p => {
-       report += `• *${p.name}*: ${p.current_stock} ${p.unit_of_measure || 'pza'} ($${p.base_price})\n`;
+       report += `• *${p.name.trim()}*: ${p.current_stock} ${p.unit_of_measure || 'pza'} ($${p.base_price})\n`;
      });
      report += "---------------------------";
 
@@ -254,7 +254,7 @@ export async function executeCommand(
 
           itemsToConfirm.push({
             productId: product.id,
-            name: product.name,
+            name: product.name.trim(),
             qty,
             unit: product.unit_of_measure || 'pza',
             price: product.base_price,
