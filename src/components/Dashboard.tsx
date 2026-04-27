@@ -409,18 +409,44 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
         </main>
       )}
 
-      <AddProductModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onAdd={(newProd) => {
-        const prod: Product = { 
-          id: Math.random().toString(36).substr(2, 9), 
-          name: newProd.name, 
-          current_stock: newProd.stock, 
-          min_stock_alert: 5, 
-          base_price: newProd.price, 
-          last_cost_price: 0,
-          unit_of_measure: newProd.unit_of_measure || 'pza'
-        };
-        setProducts(prev => [prod, ...prev]);
-        fetchDashboardData();
+      <AddProductModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onAdd={async (newProd) => {
+        if (!selectedStore) return;
+        try {
+          // 1. Insert product into DB
+          const { data: prod, error } = await supabase
+            .from('products')
+            .insert({
+              store_id: selectedStore.id,
+              name: newProd.name,
+              current_stock: newProd.stock,
+              base_price: newProd.price,
+              unit_of_measure: newProd.unit_of_measure,
+              min_stock_alert: 5
+            })
+            .select()
+            .single();
+
+          if (error) throw error;
+
+          // 2. Record initial stock in transactions for the Movement Ledger
+          if (newProd.stock > 0 && prod) {
+            await supabase.from('transactions').insert({
+              store_id: selectedStore.id,
+              product_id: prod.id,
+              type: 'restock',
+              quantity_change: newProd.stock,
+              unit_price: 0,
+              total_amount: 0,
+              notes: 'Carga inicial desde Dashboard'
+            });
+          }
+
+          setIsAddModalOpen(false);
+          fetchDashboardData();
+        } catch (err) {
+          console.error('Error saving product:', err);
+          alert('Error: No se pudo guardar el producto en la base de datos.');
+        }
       }} />
 
       <EditProductModal 
