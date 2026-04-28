@@ -20,6 +20,7 @@ interface StoreContextType {
   userRole: 'owner' | 'employee' | null;
   isVerified: boolean;
   setIsVerified: (val: boolean) => void;
+  updateStore: (storeId: string, updates: Partial<Store>) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -223,6 +224,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       userRole, 
       isVerified,
       setIsVerified,
+      updateStore: async (storeId, updates) => {
+        try {
+          const { error } = await supabase.from('stores').update(updates).eq('id', storeId);
+          if (error) throw error;
+
+          // Refresh local state
+          setStores(prev => prev.map(s => s.id === storeId ? { ...s, ...updates } : s));
+          if (selectedStore?.id === storeId) {
+            setSelectedStore({ ...selectedStore, ...updates });
+          }
+        } catch (err) {
+          console.error('Error updating store:', err);
+          throw err;
+        }
+      },
       logout 
     }}>
       {children}

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Edit2, Check, X } from 'lucide-react';
 // Build trigger: Confirming partial voiding logic deployment
 import StoreSelector from './StoreSelector';
 import { useNavigate } from 'react-router-dom';
@@ -50,7 +51,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onOpenScan }: DashboardProps) {
-  const { selectedStore, stores, setSelectedStore, loading, isDemo, userName, userRole, logout } = useStoreContext();
+  const { selectedStore, stores, setSelectedStore, loading, isDemo, userName, userRole, updateStore, logout } = useStoreContext();
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [recentActivity, setRecentActivity] = useState<Transaction[]>([]);
@@ -59,6 +60,29 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
+  
+  // Store Name Editing State
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState(selectedStore?.name || '');
+
+  useEffect(() => {
+    if (selectedStore) {
+      setEditedName(selectedStore.name);
+    }
+  }, [selectedStore]);
+
+  const handleSaveName = async () => {
+    if (!selectedStore || !editedName.trim()) {
+      setIsEditingName(false);
+      return;
+    }
+    try {
+      await updateStore(selectedStore.id, { name: editedName.trim() });
+      setIsEditingName(false);
+    } catch (err) {
+      alert('Error al actualizar el nombre del negocio');
+    }
+  };
 
 
 
@@ -260,7 +284,42 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">{selectedStore?.name || 'Inventario'}</h1>
+          {isEditingName ? (
+            <div className="flex items-center gap-2">
+              <input 
+                autoFocus
+                type="text"
+                value={editedName}
+                onChange={(e) => setEditedName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveName();
+                  if (e.key === 'Escape') setIsEditingName(false);
+                }}
+                className="bg-slate-900 border border-sky-500/50 rounded-lg px-3 py-1 text-slate-100 text-xl font-bold focus:outline-none focus:ring-2 focus:ring-sky-500/50 min-w-[200px]"
+              />
+              <button onClick={handleSaveName} className="p-1.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-md transition-colors">
+                <Check size={18} />
+              </button>
+              <button onClick={() => setIsEditingName(false)} className="p-1.5 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-md transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+          ) : (
+            <div className="group flex items-center gap-3">
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">
+                {selectedStore?.name || 'Inventario'}
+              </h1>
+              {userRole === 'owner' && (
+                <button 
+                  onClick={() => setIsEditingName(true)}
+                  className="p-1.5 text-slate-600 hover:text-sky-400 opacity-0 group-hover:opacity-100 transition-all"
+                  title="Editar nombre del negocio"
+                >
+                  <Edit2 size={14} />
+                </button>
+              )}
+            </div>
+          )}
           <p className="text-slate-400 text-sm">Panel de Control</p>
         </div>
         <div className="flex items-center gap-3">
