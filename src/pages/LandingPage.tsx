@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, MessageCircle, BarChart3, Store, Zap, ShieldCheck } from 'lucide-react';
+import { Check, MessageCircle, BarChart3, Zap, ShieldCheck } from 'lucide-react';
 
 const LandingPage: React.FC = () => {
   const plans = [
