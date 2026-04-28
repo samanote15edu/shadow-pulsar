@@ -19,19 +19,106 @@ export interface CommandResponse {
 
 // Helper para búsqueda borrosa reutilizable
 function findSimilarProduct(inputName: string, allProds: any[]) {
-  const input = inputName.toLowerCase();
+  const input = inputName.toLowerCase().trim();
   const inputStem = input.length > 3 && input.endsWith('s') ? input.slice(0, -1) : input;
   
   return allProds?.find(p => {
-    const dbName = p.name.toLowerCase();
+    const dbName = p.name.toLowerCase().trim();
     const dbStem = dbName.length > 3 && dbName.endsWith('s') ? dbName.slice(0, -1) : dbName;
 
-    return dbName.includes(input) || 
+    return dbName === input ||
+           dbName.includes(input) || 
            input.includes(dbName) || 
            dbName.includes(inputStem) || 
            inputStem.includes(dbName) ||
            dbStem.includes(input);
   });
+}
+
+/**
+ * SMART ITEM PARSER
+ * Extrae cantidad y nombre manejando pesos, fracciones y unidades.
+ */
+function smartParseItem(text: string): { qty: number; name: string; isWeight: boolean } {
+  let s = text.toLowerCase().trim();
+  let qty = 1;
+  let isWeight = false;
+
+  // 1. Diccionario de Fracciones
+  const fractions: { [key: string]: number } = {
+    'un cuarto': 0.25,
+    '1/4': 0.25,
+    'medio': 0.5,
+    'un medio': 0.5,
+    '1/2': 0.5,
+    'tres cuartos': 0.75,
+    '3/4': 0.75
+  };
+
+  // 2. Buscar Gramos (ej: 300g, 300 gramos, 300gr)
+  const gramMatch = s.match(/(\d+)\s*(g|gr|gramos|grs)/i);
+  if (gramMatch) {
+    qty = parseInt(gramMatch[1], 10) / 1000;
+    isWeight = true;
+    s = s.replace(gramMatch[0], '').trim();
+  } 
+  
+  // 3. Buscar Fracciones Literales (medio, un cuarto...)
+  else {
+    let foundFraction = false;
+    for (const [key, value] of Object.entries(fractions)) {
+      // Usar regex para asegurar que sea la palabra completa
+      const reg = new RegExp(`\\b${key}\\b`, 'i');
+      if (reg.test(s)) {
+        qty = value;
+        isWeight = true;
+        s = s.replace(reg, '').trim();
+        foundFraction = true;
+        break;
+      }
+    }
+
+    // 4. Buscar Kilos con decimales o enteros (ej: 1.5kg, 2 kilos)
+    if (!foundFraction) {
+      const kiloMatch = s.match(/(\d+[\.\/]?\d*)\s*(kg|kilo|kilos|k)/i);
+      if (kiloMatch) {
+        const val = kiloMatch[1];
+        if (val.includes('/')) {
+          const parts = val.split('/');
+          qty = parseInt(parts[0]) / parseInt(parts[1]);
+        } else {
+          qty = parseFloat(val);
+        }
+        isWeight = true;
+        s = s.replace(kiloMatch[0], '').trim();
+      } else {
+        // Fallback: Buscar número normal al principio o fin
+        const startNumMatch = s.match(/^(\d+[\.\/]?\d*)\s+/);
+        if (startNumMatch) {
+          const val = startNumMatch[1];
+          if (val.includes('/')) {
+             const parts = val.split('/');
+             qty = parseInt(parts[0]) / parseInt(parts[1]);
+          } else {
+             qty = parseFloat(val);
+          }
+          s = s.replace(startNumMatch[0], '').trim();
+        } else {
+          // Detectar "un", "una"
+          const unMatch = s.match(/^(un|una|uno)\s+/i);
+          if (unMatch) {
+            qty = 1;
+            s = s.replace(unMatch[0], '').trim();
+          }
+        }
+      }
+    }
+  }
+
+  // Limpieza final del nombre (quitar "de", "del", etc)
+  const name = s.replace(/^(de|del|de un|de una)\s+/i, '').trim();
+  
+  return { qty, name, isWeight };
 }
 
 export async function executeCommand(
@@ -113,23 +200,10 @@ export async function executeCommand(
         s = s.slice(0, s.lastIndexOf(priceMatch[0])).trim();
       }
 
-      // 2. Extraer Cantidad (principio o fin)
-      const qtyStartMatch = s.match(/^(\d+)\s+(.+)$/);
-      const qtyEndMatch = s.match(/^(.+)\s+(\d+)$/);
-      const unMatch = s.match(/^(un|una|uno)\s+(.+)$/i);
-
-      if (qtyStartMatch) {
-        qty = parseInt(qtyStartMatch[1], 10);
-        name = qtyStartMatch[2].trim();
-      } else if (qtyEndMatch) {
-        qty = parseInt(qtyEndMatch[2], 10);
-        name = qtyEndMatch[1].trim();
-      } else if (unMatch) {
-        qty = 1;
-        name = unMatch[2].trim();
-      } else {
-        name = s.trim();
-      }
+      // 2. Usar Smart Parser para Cantidad y Nombre
+      const { qty: parsedQty, name: parsedName } = smartParseItem(s);
+      qty = parsedQty;
+      name = parsedName;
 
       items.push({ name, qty, price });
     }
@@ -218,79 +292,72 @@ export async function executeCommand(
     }
   }
 
-  // 3.2 VENTA GUIADA
-  const saleTriggers = ['venta', 'ventas', 'venta:', 'ventas:'];
-  if (saleTriggers.includes(lowerMsg)) {
-    return {
-      responseText: "¡Perfecto! 🛍️ ¿Qué producto quieres vender? (Ej: '2 cocas' o solo 'cocas')",
-      nextStep: 'awaiting_sale_items_guided'
-    };
+  // 4. BULK SALE SCANNER (Detects patterns like "2 cocas, medio de frijol")
+  const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId).eq('is_active', true);
+  const itemsToConfirm = [];
+  let grandTotal = 0;
+  let fallbackText = '';
+
+  // Split by commas or 'y' or 'con' if it's a long sentence
+  const segments = cleanMsg.split(/,|\s+y\s+|\s+con\s+/i);
+
+  for (const seg of segments) {
+    if (!seg.trim()) continue;
+    const { qty, name: inputName } = smartParseItem(seg);
+    if (!inputName) continue; // Skip if no product name found
+    
+    const product = findSimilarProduct(inputName, allProds || []);
+
+    if (product) {
+      const subtotal = qty * product.base_price;
+      grandTotal += subtotal;
+      
+      let warning = '';
+      if (product.current_stock < qty) {
+        warning = `⚠️ *Stock Insuficiente* (${product.current_stock} disp.)`;
+      }
+
+      itemsToConfirm.push({
+        productId: product.id,
+        name: product.name.trim(),
+        qty,
+        unit: product.unit_of_measure || 'pza',
+        price: product.base_price,
+        subtotal,
+        warning
+      });
+    } else {
+      // Solo agregamos a fallback si parece que intentó vender algo (tiene cantidad o nombre largo)
+      if (inputName.length > 2) {
+        fallbackText += `• No encontré "${inputName}".\n`;
+      }
+    }
   }
 
-  // 4. BULK SALE SCANNER (Detects patterns like "2 cocas 1 gansito")
-  // Regex looks for [Number] [Text] followed by another [Number] or end of string.
-  const bulkRegex = /(\d+)\s+([a-zA-Z\xC0-\xFF\s]+?)(?=\s+\d+|\s*$)/g;
-  const matches = [...cleanMsg.matchAll(bulkRegex)];
-
-  if (matches.length > 0) {
-    const { data: allProds } = await supabase.from('products').select('*').eq('store_id', storeId).eq('is_active', true);
-    const itemsToConfirm = [];
-    let grandTotal = 0;
-    let fallbackText = '';
-
-    for (const match of matches) {
-      const qty = parseInt(match[1], 10);
-      const inputName = match[2].trim();
-      const product = findSimilarProduct(inputName, allProds || []);
-
-        if (product) {
-          const subtotal = qty * product.base_price;
-          grandTotal += subtotal;
-          
-          let warning = '';
-          if (product.current_stock < qty) {
-            warning = `⚠️ *Stock Insuficiente* (${product.current_stock} disp.)`;
-          }
-
-          itemsToConfirm.push({
-            productId: product.id,
-            name: product.name.trim(),
-            qty,
-            unit: product.unit_of_measure || 'pza',
-            price: product.base_price,
-            subtotal,
-            warning
-          });
-        } else {
-          fallbackText += `• No encontré "${inputName}".\n`;
-        }
+  if (itemsToConfirm.length > 0) {
+    let ticket = `🥤 *Confirmar Venta*\n\n`;
+    itemsToConfirm.forEach(it => {
+      ticket += `• ${it.qty} ${it.unit} de ${it.name} ... $${it.subtotal}${it.warning ? `\n    ${it.warning}` : ''}\n`;
+    });
+    ticket += `--------------------------\n`;
+    ticket += `*TOTAL: $${grandTotal}*\n`;
+    
+    const hasStockWarning = itemsToConfirm.some(it => it.warning);
+    if (hasStockWarning) {
+      ticket += `⚠️ _La venta forzará stock negativo en algunos items._\n`;
     }
-
-    if (itemsToConfirm.length > 0) {
-      let ticket = `🥤 *Confirmar Venta*\n\n`;
-      itemsToConfirm.forEach(it => {
-        ticket += `• ${it.qty} ${it.unit} de ${it.name} ... $${it.subtotal}${it.warning ? `\n    ${it.warning}` : ''}\n`;
-      });
-      ticket += `--------------------------\n`;
-      ticket += `*TOTAL: $${grandTotal}*\n`;
-      
-      const hasStockWarning = itemsToConfirm.some(it => it.warning);
-      if (hasStockWarning) {
-        ticket += `⚠️ _La venta forzará stock negativo en algunos items._\n`;
-      }
-      ticket += `\n`;
-      
-      if (fallbackText) {
-        ticket += `⚠️ _Nota:_\n${fallbackText}`;
-      }
-      ticket += `¿Confirmas el ticket?`;
-
-      return {
-        responseText: ticket,
-        nextStep: 'awaiting_bulk_confirmation',
-        metadata: { items: itemsToConfirm, total: grandTotal }
-      };
+    ticket += `\n`;
+    
+    if (fallbackText) {
+      ticket += `⚠️ _Nota:_\n${fallbackText}`;
     }
+    ticket += `¿Confirmas el ticket?`;
+
+    return {
+      responseText: ticket,
+      nextStep: 'awaiting_bulk_confirmation',
+      metadata: { items: itemsToConfirm, total: grandTotal }
+    };
   }
 
   // 5. VOID / CANCEL LAST SALE COMMAND
