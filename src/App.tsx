@@ -7,21 +7,21 @@ import FastScan from './components/FastScan'
 import MovementLedger from './components/MovementLedger'
 import DebtorsLedger from './components/DebtorsLedger'
 import InventoryReconciliation from './components/InventoryReconciliation'
+import LandingPage from './pages/LandingPage'
 
 function App() {
   return (
     <StoreProvider>
       <Router>
-        <AuthGuard>
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/report/:token" element={<ReportView />} />
-            <Route path="/ledger" element={<MovementLedger />} />
-            <Route path="/scan/:token" element={<FastScan />} />
-            <Route path="/debtors" element={<DebtorsLedger />} />
-            <Route path="/audit" element={<InventoryReconciliation />} />
+            <Route path="/ventas" element={<LandingPage />} />
+            <Route path="/" element={<AuthGuard><Dashboard /></AuthGuard>} />
+            <Route path="/report/:token" element={<AuthGuard><ReportView /></AuthGuard>} />
+            <Route path="/ledger" element={<AuthGuard><MovementLedger /></AuthGuard>} />
+            <Route path="/scan/:token" element={<AuthGuard><FastScan /></AuthGuard>} />
+            <Route path="/debtors" element={<AuthGuard><DebtorsLedger /></AuthGuard>} />
+            <Route path="/audit" element={<AuthGuard><InventoryReconciliation /></AuthGuard>} />
           </Routes>
-        </AuthGuard>
       </Router>
     </StoreProvider>
   )

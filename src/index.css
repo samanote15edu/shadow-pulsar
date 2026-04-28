@@ -5,9 +5,17 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #0f172a;
+  color-scheme: dark;
+  --primary: #6366f1;
+  --secondary: #a855f7;
+  --accent: #06b6d4;
+  --background: #030712;
+  --surface: #111827;
+  --text: #f9fafb;
+  --gradient-main: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+
+  color: var(--text);
+  background-color: var(--background);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -54,4 +62,42 @@ body {
 
 .animate-scan-success {
   animation: scanner-flash 0.5s ease-out forwards;
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1.5rem;
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.btn-premium {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.3);
+}
+
+.btn-premium:hover {
+  transform: scale(1.05);
+  box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.4);
 }
