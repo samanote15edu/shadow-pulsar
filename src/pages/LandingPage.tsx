@@ -65,8 +65,7 @@ const LandingPage: React.FC = () => {
         },
         body: JSON.stringify({
           priceId: priceId,
-          storeId: 'NEW_CUSTOMER_PENDING',
-          customerEmail: ''
+          storeId: 'NEW_CUSTOMER_PENDING'
         }),
       });
 

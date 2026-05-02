@@ -37,7 +37,7 @@ serve(async (req) => {
     }
 
     // Create a Checkout Session
-    const session = await stripe.checkout.sessions.create({
+    const sessionOptions: any = {
       payment_method_types: ["card"],
       line_items: [
         {
@@ -51,8 +51,13 @@ serve(async (req) => {
       metadata: {
         storeId: storeId,
       },
-      customer_email: customerEmail,
-    });
+    };
+
+    if (customerEmail && customerEmail.trim() !== "") {
+      sessionOptions.customer_email = customerEmail;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionOptions);
 
     return new Response(JSON.stringify({ url: session.url }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
