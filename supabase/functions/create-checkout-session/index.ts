@@ -9,21 +9,26 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "*",
 };
 
 serve(async (req) => {
-  console.log("Request received:", req.method);
-  
+  // Manejo de pre-flight CORS
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const body = await req.json();
-    console.log("Request body:", body);
+    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY no encontrada en Supabase");
     
-    const { priceId, storeId, customerEmail } = body;
+    const stripe = new Stripe(stripeKey, {
+      apiVersion: "2022-11-15",
+      httpClient: Stripe.createFetchHttpClient(),
+    });
+
+    const body = await req.json();
+    console.log("Iniciando sesión de pago para:", body);
 
     if (!priceId || !storeId) {
       throw new Error("Missing priceId or storeId");

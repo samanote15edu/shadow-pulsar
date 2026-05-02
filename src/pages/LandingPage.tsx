@@ -79,7 +79,7 @@ const LandingPage: React.FC = () => {
       }
     } catch (err) {
       console.error('Error creating checkout session:', err);
-      alert('Hubo un error al iniciar el pago. Por favor intenta de nuevo.');
+      alert(`Error al iniciar el pago: ${err.message || 'Error desconocido'}`);
     } finally {
       setLoadingPlan(null);
     }
