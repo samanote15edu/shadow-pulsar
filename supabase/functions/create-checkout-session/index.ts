@@ -30,6 +30,8 @@ serve(async (req) => {
     const body = await req.json();
     console.log("Iniciando sesión de pago para:", body);
 
+    const { priceId, storeId, customerEmail } = body;
+
     if (!priceId || !storeId) {
       throw new Error("Missing priceId or storeId");
     }
