@@ -56,17 +56,26 @@ const LandingPage: React.FC = () => {
   const handleSubscribe = async (priceId: string, planName: string) => {
     setLoadingPlan(planName);
     try {
-      // For now, we use a placeholder storeId. 
-      // In a real flow, the user would sign up/login first.
-      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
-        body: { 
-          priceId, 
-          storeId: 'NEW_CUSTOMER_PENDING', // Temporary placeholder
-          customerEmail: '' // Optional
-        }
+      const { data: { publicUrl } } = supabase.storage.from('dummy').getPublicUrl(''); // Just to get the base URL if needed, but we'll use the direct one
+      const functionUrl = 'https://yrjjajjmhirwkgldulzl.supabase.co/functions/v1/create-checkout-session';
+
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          priceId,
+          storeId: 'NEW_CUSTOMER_PENDING',
+          customerEmail: ''
+        }),
       });
 
-      if (error) throw error;
+      const data = await response.json();
+
+      if (!response.ok) throw new Error(data.error || 'Error en la respuesta del servidor');
+      
       if (data?.url) {
         window.location.href = data.url;
       }
