@@ -56,7 +56,6 @@ const LandingPage: React.FC = () => {
   const handleSubscribe = async (priceId: string, planName: string) => {
     setLoadingPlan(planName);
     try {
-      const { data: { publicUrl } } = supabase.storage.from('dummy').getPublicUrl(''); // Just to get the base URL if needed, but we'll use the direct one
       const functionUrl = 'https://yrjjajjmhirwkgldulzl.supabase.co/functions/v1/create-checkout-session';
 
       const response = await fetch(functionUrl, {
