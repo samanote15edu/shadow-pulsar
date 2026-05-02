@@ -1,9 +1,13 @@
-import React from 'react';
-import { Check, MessageCircle, BarChart3, Zap, ShieldCheck } from 'lucide-react';
+import React, { useState } from 'react';
+import { Check, MessageCircle, BarChart3, Zap, ShieldCheck, Loader2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 const LandingPage: React.FC = () => {
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+
   const plans = [
     {
+      id: 'price_1TRzRKFna9dCLXLQRmi9MXVd',
       name: 'Básico',
       price: '120',
       description: 'Ideal para emprendedores individuales y pequeños puestos.',
@@ -18,6 +22,7 @@ const LandingPage: React.FC = () => {
       highlighted: false
     },
     {
+      id: 'price_1TRzS4Fna9dCLXLQQA718c8J',
       name: 'Gerencial',
       price: '300',
       description: 'Perfecto para negocios en crecimiento con múltiples empleados.',
@@ -32,6 +37,7 @@ const LandingPage: React.FC = () => {
       highlighted: true
     },
     {
+      id: 'price_1TRzSdFna9dCLXLQjX96viZA',
       name: 'Pro',
       price: '850',
       description: 'La solución definitiva para tiendas de alto volumen.',
@@ -46,6 +52,31 @@ const LandingPage: React.FC = () => {
       highlighted: false
     }
   ];
+
+  const handleSubscribe = async (priceId: string, planName: string) => {
+    setLoadingPlan(planName);
+    try {
+      // For now, we use a placeholder storeId. 
+      // In a real flow, the user would sign up/login first.
+      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+        body: { 
+          priceId, 
+          storeId: 'NEW_CUSTOMER_PENDING', // Temporary placeholder
+          customerEmail: '' // Optional
+        }
+      });
+
+      if (error) throw error;
+      if (data?.url) {
+        window.location.href = data.url;
+      }
+    } catch (err) {
+      console.error('Error creating checkout session:', err);
+      alert('Hubo un error al iniciar el pago. Por favor intenta de nuevo.');
+    } finally {
+      setLoadingPlan(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#030712] text-white overflow-x-hidden">
@@ -148,12 +179,18 @@ const LandingPage: React.FC = () => {
                 </ul>
               </div>
 
-              <button className={`w-full py-4 rounded-xl font-bold transition-all ${
-                plan.highlighted 
-                  ? 'btn-premium' 
-                  : 'bg-white/10 hover:bg-white/20'
-              }`}>
-                {plan.cta}
+              <button 
+                onClick={() => handleSubscribe(plan.id, plan.name)}
+                disabled={loadingPlan !== null}
+                className={`w-full py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
+                  plan.highlighted 
+                    ? 'btn-premium' 
+                    : 'bg-white/10 hover:bg-white/20'
+                } ${loadingPlan !== null ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {loadingPlan === plan.name ? (
+                  <Loader2 className="animate-spin" size={20} />
+                ) : plan.cta}
               </button>
             </div>
           ))}
