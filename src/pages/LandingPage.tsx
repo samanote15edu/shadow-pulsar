@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Check, MessageCircle, BarChart3, Zap, ShieldCheck, Loader2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
 
 const LandingPage: React.FC = () => {
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
