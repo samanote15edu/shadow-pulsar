@@ -8,16 +8,22 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 serve(async (req) => {
+  console.log("Request received:", req.method);
+  
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const { priceId, storeId, customerEmail } = await req.json();
+    const body = await req.json();
+    console.log("Request body:", body);
+    
+    const { priceId, storeId, customerEmail } = body;
 
     if (!priceId || !storeId) {
       throw new Error("Missing priceId or storeId");
