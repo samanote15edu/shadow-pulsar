@@ -77,7 +77,7 @@ const LandingPage: React.FC = () => {
       if (data?.url) {
         window.location.href = data.url;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error creating checkout session:', err);
       alert(`Error al iniciar el pago: ${err.message || 'Error desconocido'}`);
     } finally {
