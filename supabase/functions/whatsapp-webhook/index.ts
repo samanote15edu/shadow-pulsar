@@ -166,6 +166,12 @@ serve(async (req) => {
 
     const from = message.from;
     const messageId = message.id; 
+
+    // --- TEST DE VIDA ---
+    if (message.text?.body?.toLowerCase() === 'ping') {
+      await sendWhatsAppMessage(from, "¡PONG! 🏓 La función está viva.");
+      return new Response('OK', { status: 200 });
+    }
     
     // Handle Button Replies
     let text = '';
