@@ -121,18 +121,142 @@ function smartParseItem(text: string): { qty: number; name: string; isWeight: bo
   return { qty, name, isWeight };
 }
 
-export async function executeCommand(
-  message: string, 
-  supabase: SupabaseClient, 
-  storeId: string,
-  userRole: string,
-  userPhone: string,
-  userId: string
-): Promise<CommandResponse> {
-  const cleanMsg = message.trim();
-  const lowerMsg = cleanMsg.toLowerCase();
-  const isAdmin = userRole === 'owner' || userRole === 'manager';
+// Tipos de Intenciones
+export type IntentType = 'SALE' | 'RESTOCK' | 'INVENTORY_QUERY' | 'DEBT_QUERY' | 'CORTE_QUERY' | 'CANCEL' | 'UNKNOWN';
 
+interface IntentResult {
+  intent: IntentType;
+  confidence: number;
+  entities: {
+    product?: string;
+    qty?: number;
+    target?: string; // Para fiados
+  };
+}
+
+/**
+ * INTENT DETECTION ENGINE
+ * Clasifica lo que el usuario quiere hacer usando lenguaje natural.
+ */
+function detectIntent(text: string): IntentResult {
+  const s = text.toLowerCase().trim();
+  
+  // 1. Detección de Venta (SALE)
+  // Ej: "una coca", "dame 2 cocas", "2 sabritas", "vendí un pan"
+  const salePatterns = [
+    /^(dame|vende|ponme|una|un|unos|unas|vendi|vendí)\s+/i,
+    /^(\d+)\s+(.+)/i, // Empieza con número: "2 cocas"
+    /^\b(coca|sabritas|pan|leche|huevo)\b/i // Palabras comunes directas
+  ];
+
+  // 2. Detección de Resurtido (RESTOCK)
+  // Ej: "llegaron 10 cocas", "compré 2 rejas de huevo", "resurtir 5 panes"
+  const restockPatterns = [
+    /^(llegaron|llegó|llego|trajeron|trajo|compre|compré|resurtir|recibi|recibí|entregan|entregaron|entro|entró)\s+/i,
+    /resurtir/i,
+    /entrada/i
+  ];
+
+  // 3. Detección de Deuda (DEBT_QUERY)
+  // Ej: "¿cuánto me debe juan?", "deuda de maria", "fiados"
+  const debtPatterns = [
+    /cuanto\s+(me\s+)?debe/i,
+    /deuda/i,
+    /fiado/i,
+    /cuent(a|as)/i
+  ];
+
+  // Lógica de Clasificación
+  if (restockPatterns.some(p => p.test(s))) {
+    // Extraer entidades para restock
+    const match = s.match(/(?:llegaron|compré|resurtir|recibí)\s+(?:de\s+)?(\d+)?\s*(.+)/i);
+    return {
+      intent: 'RESTOCK',
+      confidence: 0.8,
+      entities: {
+        qty: match?.[1] ? parseFloat(match[1]) : undefined,
+        product: match?.[2]?.trim()
+      }
+    };
+  }
+
+  if (debtPatterns.some(p => p.test(s))) {
+    return { intent: 'DEBT_QUERY', confidence: 0.8, entities: {} };
+  }
+
+  if (salePatterns.some(p => p.test(s))) {
+    // Extraer entidades para venta
+    const match = s.match(/^(?:dame|vende|vendí)?\s*(\d+)?\s*(.+)/i);
+    return {
+      intent: 'SALE',
+      confidence: 0.7,
+      entities: {
+        qty: match?.[1] ? parseFloat(match[1]) : 1,
+        product: match?.[2]?.trim()
+      }
+    };
+  }
+
+  return { intent: 'UNKNOWN', confidence: 0, entities: {} };
+}
+
+export async function handleCommand(
+  text: string, 
+  storeId: string, 
+  supabase: SupabaseClient,
+  senderName: string = 'Cliente'
+): Promise<CommandResponse> {
+  const s = text.toLowerCase().trim();
+
+  // 1. DETECCIÓN DE INTENCIÓN (V2)
+  const intentResult = detectIntent(text);
+  console.log("Intent Detected:", intentResult);
+
+  // 2. RUTAS DE COMANDOS MANUALES (Mantener compatibilidad)
+  if (s === '/start' || s === 'hola' || s === 'menu' || s === 'menú') {
+    return {
+      responseText: `👋 ¡Hola ${senderName}! Soy tu asistente de inventario de Shadow Pulsar.\n\nPuedes decirme cosas como:\n• "Vendí 2 cocas"\n• "Llegaron 10 gansitos"\n• "¿Cuánto me debe Juan?"\n• "Inventario"\n\n¿En qué te ayudo hoy?`
+    };
+  }
+
+  // 3. PROCESAR INTENCIONES DETECTADAS
+  if (intentResult.intent === 'RESTOCK' && intentResult.entities.product) {
+    // Intentar buscar el producto de forma difusa (usando la nueva función SQL)
+    const { data: fuzzyProds } = await supabase.rpc('fuzzy_search_products', {
+      search_text: intentResult.entities.product,
+      store_id_param: storeId,
+      similarity_threshold: 0.3
+    });
+
+    if (fuzzyProds && fuzzyProds.length > 0) {
+      const bestMatch = fuzzyProds[0];
+      const qty = intentResult.entities.qty || 1;
+
+      // Si la confianza es alta (>0.6), pedir confirmación
+      if (bestMatch.similarity > 0.6) {
+        return {
+          responseText: `📦 Entendido. Detecté que quieres **resurtir ${qty} unidades** de **${bestMatch.name}**.\n\n¿Es correcto?`,
+          nextStep: 'awaiting_restock_qty_guided', // Reutilizaremos un estado existente para confirmar
+          metadata: {
+            productId: bestMatch.id,
+            productName: bestMatch.name,
+            qty: qty,
+            intent: 'RESTOCK'
+          }
+        };
+      }
+    }
+  }
+
+  if (intentResult.intent === 'DEBT_QUERY') {
+    // Lógica para fiados...
+  }
+
+  // ... (Resto de la lógica anterior sigue aquí como fallback)
+
+  const cleanMsg = text.trim();
+  const lowerMsg = cleanMsg.toLowerCase();
+  
   // 1. Ayuda / Menu
   if (lowerMsg === 'ayuda' || lowerMsg === 'menu' || lowerMsg === 'comandos') {
      let help = "❓ *¿CÓMO PUEDO AYUDARTE?*\n\n";

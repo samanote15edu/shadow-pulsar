@@ -1558,23 +1558,49 @@ serve(async (req) => {
         }
       }
 
+      // --- 5. LOGICA CONVERSACIONAL (V2) ---
+      console.time('conversationalHandler');
+      // Intentar procesar con el nuevo parser conversacional
+      const convRes = await handleCommand(text, profile.store_id, supabase, profile.full_name || 'Amigo');
+      console.timeEnd('conversationalHandler');
+
+      if (convRes && convRes.nextStep) {
+        // Si el parser conversacional detectó una intención y requiere confirmación
+        await supabase.from('registration_states').upsert({ 
+          whatsapp_number: from, 
+          step: convRes.nextStep, 
+          metadata: convRes.metadata,
+          updated_at: new Date().toISOString() 
+        });
+
+        if (convRes.responseText) {
+          // Si es una confirmación, enviar botones
+          if (convRes.nextStep.includes('confirmation') || convRes.nextStep.includes('guided')) {
+            await sendWhatsAppButtons(from, convRes.responseText, [
+              { id: 'yes', title: 'SÍ ✅' },
+              { id: 'no', title: 'NO ❌' }
+            ]);
+          } else {
+            await sendWhatsAppMessage(from, convRes.responseText);
+          }
+        }
+        
+        await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
+        return new Response('OK', { status: 200 });
+      }
+
+      // --- 6. FALLBACK A COMANDOS LEGADOS ---
       console.time('executeCommand');
       const res = await executeCommand(text, supabase, profile.store_id, profile.role, from, profile.id);
       console.timeEnd('executeCommand');
       
       if (res.nextStep) {
-        const { error: stateError } = await supabase.from('registration_states').upsert({ 
+        await supabase.from('registration_states').upsert({ 
           whatsapp_number: from, 
           step: res.nextStep, 
           metadata: res.metadata,
           updated_at: new Date().toISOString() 
         });
-        
-        if (stateError) {
-          console.error('[STATE UPSERT ERROR]', stateError);
-          await sendWhatsAppMessage(from, `❌ Error técnico al guardar el estado: ${stateError.message}`);
-          return new Response('OK', { status: 200 });
-        }
       }
 
       if (res.responseText) {
