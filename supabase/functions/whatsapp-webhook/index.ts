@@ -73,16 +73,43 @@ serve(async (req) => {
     const { data: convState } = await supabase.from('registration_states').select('*').eq('whatsapp_number', from).maybeSingle();
 
     if (!profile) {
-      // Manejar registro (código de invitación)
-      if (normalizeText(text).length > 5) {
-         const { data: invite } = await supabase.from('invite_codes').select('*').eq('code', text.toUpperCase()).eq('is_active', true).maybeSingle();
-         if (invite) {
-            await supabase.from('registration_states').upsert({ whatsapp_number: from, step: 'awaiting_store_name' });
+      const step = convState?.step;
+
+      // 1. Manejar Código de Invitación
+      if (!step) {
+        if (normalizeText(text).length >= 5) {
+          const { data: invite } = await supabase.from('invite_codes').select('*').eq('code', text.toUpperCase()).eq('is_active', true).maybeSingle();
+          if (invite) {
+            await supabase.from('registration_states').upsert({ whatsapp_number: from, step: 'awaiting_store_name', metadata: { inviteCode: invite.code } });
             await sendWhatsAppMessage(from, "¡Código aceptado! ✅ ¿Cómo se llama tu negocio?");
             return new Response('OK', { status: 200 });
-         }
+          }
+        }
+        await sendWhatsAppMessage(from, "👋 ¡Hola! Para unirte a Shadow Pulsar, por favor escribe tu código de invitación.");
+        return new Response('OK', { status: 200 });
       }
-      await sendWhatsAppMessage(from, "👋 ¡Hola! Para unirte a Shadow Pulsar, por favor escribe tu código de invitación.");
+
+      // 2. Manejar Onboarding
+      if (step === 'awaiting_store_name') {
+        await supabase.from('registration_states').update({ step: 'awaiting_business_type', metadata: { ...convState.metadata, storeName: text } }).eq('whatsapp_number', from);
+        await sendWhatsAppButtons(from, `🏪 *${text}*\n\n¿Qué tipo de negocio es?`, [
+          { id: 'inventory', title: 'Inventario 📦' },
+          { id: 'activity_logs', title: 'Bitácora 📝' }
+        ]);
+        return new Response('OK', { status: 200 });
+      }
+
+      if (step === 'awaiting_business_type') {
+        const type = text.toLowerCase().includes('inventario') ? 'inventory' : 'activity_logs';
+        const { data: store } = await supabase.from('stores').insert({ name: convState.metadata.storeName, business_type: type }).select().single();
+        if (store) {
+          await supabase.from('profiles').insert({ whatsapp_number: from, role: 'owner', store_id: store.id, full_name: 'Dueño' });
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `🎉 ¡Felicidades! Tu negocio *${store.name}* ha sido registrado.\n\nYa puedes empezar escribiendo: 'Inventario'`);
+        }
+        return new Response('OK', { status: 200 });
+      }
+
       return new Response('OK', { status: 200 });
     }
 
