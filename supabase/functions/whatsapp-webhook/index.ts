@@ -1559,10 +1559,7 @@ serve(async (req) => {
       }
 
       // --- 5. LOGICA CONVERSACIONAL (V2) ---
-      console.time('conversationalHandler');
-      // Intentar procesar con el nuevo parser conversacional
       const convRes = await handleCommand(text, profile.store_id, supabase, profile.full_name || 'Amigo', convState);
-      console.timeEnd('conversationalHandler');
 
       if (convRes && convRes.responseText) {
         // Si hay un siguiente paso, guardarlo
