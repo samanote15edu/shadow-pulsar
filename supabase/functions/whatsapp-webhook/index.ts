@@ -77,22 +77,24 @@ serve(async (req) => {
 
       // 1. Manejar Código de Invitación
       if (!step) {
-        if (normalizeText(text).length >= 5) {
-          const { data: invite } = await supabase.from('invite_codes').select('*').eq('code', text.toUpperCase()).eq('is_active', true).maybeSingle();
+        const inputCode = text.trim().toUpperCase();
+        if (inputCode.length >= 5) {
+          const { data: invite } = await supabase.from('invite_codes').select('*').eq('code', inputCode).eq('is_active', true).maybeSingle();
           if (invite) {
             await supabase.from('registration_states').upsert({ whatsapp_number: from, step: 'awaiting_store_name', metadata: { inviteCode: invite.code } });
-            await sendWhatsAppMessage(from, "¡Código aceptado! ✅ ¿Cómo se llama tu negocio?");
+            await sendWhatsAppMessage(from, "🌟 *¡Bienvenido a Shadow Pulsar!* 🌟\n\nTu código ha sido validado con éxito.\n\nPara comenzar la configuración de tu panel, ¿cuál es el *Nombre de tu Negocio*?");
             return new Response('OK', { status: 200 });
           }
         }
-        await sendWhatsAppMessage(from, "👋 ¡Hola! Para unirte a Shadow Pulsar, por favor escribe tu código de invitación.");
+        await sendWhatsAppMessage(from, "👋 ¡Hola! Soy tu asistente de *Shadow Pulsar*.\n\nPara activar tu cuenta y empezar a gestionar tu inventario por WhatsApp, por favor escribe tu *Código de Invitación*.");
         return new Response('OK', { status: 200 });
       }
 
       // 2. Manejar Onboarding
       if (step === 'awaiting_store_name') {
-        await supabase.from('registration_states').update({ step: 'awaiting_business_type', metadata: { ...convState.metadata, storeName: text } }).eq('whatsapp_number', from);
-        await sendWhatsAppButtons(from, `🏪 *${text}*\n\n¿Qué tipo de negocio es?`, [
+        const storeName = text.trim();
+        await supabase.from('registration_states').update({ step: 'awaiting_business_type', metadata: { ...convState.metadata, storeName } }).eq('whatsapp_number', from);
+        await sendWhatsAppButtons(from, `🏪 *Configurando: ${storeName}*\n\n¿Qué tipo de gestión necesitas principalmente?`, [
           { id: 'inventory', title: 'Inventario 📦' },
           { id: 'activity_logs', title: 'Bitácora 📝' }
         ]);
@@ -101,11 +103,26 @@ serve(async (req) => {
 
       if (step === 'awaiting_business_type') {
         const type = text.toLowerCase().includes('inventario') ? 'inventory' : 'activity_logs';
-        const { data: store } = await supabase.from('stores').insert({ name: convState.metadata.storeName, business_type: type }).select().single();
+        const { data: store, error: storeErr } = await supabase.from('stores').insert({ 
+          name: convState.metadata.storeName, 
+          business_type: type,
+          logo_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(convState.metadata.storeName)}`
+        }).select().single();
+        
         if (store) {
-          await supabase.from('profiles').insert({ whatsapp_number: from, role: 'owner', store_id: store.id, full_name: 'Dueño' });
+          // Crear perfil y desactivar código
+          await supabase.from('profiles').insert({ whatsapp_number: from, role: 'owner', store_id: store.id, full_name: 'Dueño de ' + store.name });
+          await supabase.from('invite_codes').update({ is_active: false }).eq('code', convState.metadata.inviteCode);
           await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-          await sendWhatsAppMessage(from, `🎉 ¡Felicidades! Tu negocio *${store.name}* ha sido registrado.\n\nYa puedes empezar escribiendo: 'Inventario'`);
+          
+          let welcome = `🎉 *¡Configuración Completada!* ✨\n\n`;
+          welcome += `Tu negocio *${store.name}* ya está en línea.\n\n`;
+          welcome += `💡 *¿Qué sigue?*\n`;
+          welcome += `1. Escribe *"Llegaron 5 cocas"* para cargar inventario.\n`;
+          welcome += `2. Escribe *"Venta 1 coca"* para registrar una salida.\n`;
+          welcome += `3. Escribe *"Ayuda"* para ver todos los comandos.\n\n`;
+          welcome += `¡Mucho éxito con tu negocio! 🚀`;
+          await sendWhatsAppMessage(from, welcome);
         }
         return new Response('OK', { status: 200 });
       }
