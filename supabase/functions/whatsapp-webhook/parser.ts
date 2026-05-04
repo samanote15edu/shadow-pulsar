@@ -206,9 +206,12 @@ export async function handleCommand(
   text: string, 
   storeId: string, 
   supabase: SupabaseClient,
-  senderName: string = 'Cliente'
+  senderName: string = 'Cliente',
+  convState: any = null // Estado de la conversación (memoria)
 ): Promise<CommandResponse> {
   const s = text.toLowerCase().trim();
+  const currentStep = convState?.current_step;
+  const metadata = convState?.metadata;
 
   // 1. DETECCIÓN DE INTENCIÓN (V2)
   const intentResult = detectIntent(text);
@@ -228,10 +231,6 @@ export async function handleCommand(
       similarity_threshold: 0.2 // Más permisivo
     });
 
-    if (fuzzyProds && fuzzyProds.length > 0) {
-      const bestMatch = fuzzyProds[0];
-      const qty = intentResult.entities.qty || 1;
-
       // Si encontramos algo razonable (>0.2), pedir confirmación
       return {
         responseText: `📦 Entendido. Detecté que quieres **resurtir ${qty} unidades** de **${bestMatch.name}**.\n\n¿Es correcto?`,
@@ -244,15 +243,85 @@ export async function handleCommand(
         }
       };
     } else {
-      // Si no encuentra el producto, podemos preguntar o fallar elegantemente
+      // Si no encuentra el producto, ofrecer crearlo
       return {
-        responseText: `🔍 No encontré ningún producto parecido a "${intentResult.entities.product}" en tu inventario.\n\n¿Quieres registrarlo como un producto nuevo o intentar con otro nombre?`
+        responseText: `🔍 No encontré ningún producto parecido a "${intentResult.entities.product}" en tu inventario.\n\n¿Quieres registrarlo como un producto nuevo?`,
+        nextStep: 'awaiting_new_product_details', // Nuevo estado para empezar el registro
+        metadata: {
+          newName: intentResult.entities.product,
+          pendingQty: intentResult.entities.qty || 1
+        }
       };
     }
   }
 
-  if (intentResult.intent === 'DEBT_QUERY') {
-    // Lógica para fiados en V2 (Pendiente implementar completa)
+  // --- 4. MANEJAR RESPUESTAS A PREGUNTAS GUIADAS (CONVERSATION STATES) ---
+  // Esta lógica se activa cuando el usuario responde a una pregunta del bot
+  if (currentStep === 'awaiting_new_product_details') {
+    const isPositive = ['si', 'sí', 'va', 'dale', 'yes', 's'].includes(s);
+    if (isPositive) {
+      return {
+        responseText: `✨ ¡Excelente! Vamos a registrar **"${metadata?.newName}"**.\n\n¿A qué **precio** lo vas a vender al público? (Ej: 15.50)`,
+        nextStep: 'awaiting_new_product_price',
+        metadata: metadata
+      };
+    } else {
+      return { responseText: "Entendido. Operación cancelada. ¿En qué más puedo ayudarte?" };
+    }
+  }
+
+  if (currentStep === 'awaiting_new_product_price') {
+    const price = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(price)) {
+      return {
+        responseText: "❌ Por favor, escribe solo el número del precio (ej: 18).",
+        nextStep: 'awaiting_new_product_price',
+        metadata: metadata
+      };
+    }
+    return {
+      responseText: `💰 Precio fijado en **$${price}**.\n\n¿Cuál es el **costo** de este producto para ti? (O escribe 0 si no lo sabes)`,
+      nextStep: 'awaiting_product_cost',
+      metadata: { ...metadata, price }
+    };
+  }
+
+  if (currentStep === 'awaiting_product_cost') {
+    const cost = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(cost)) {
+      return {
+        responseText: "❌ Por favor, escribe solo el número del costo.",
+        nextStep: 'awaiting_product_cost',
+        metadata: metadata
+      };
+    }
+
+    // --- ¡MOMENTO DE LA VERDAD! CREAR EL PRODUCTO ---
+    const { data: newProd, error } = await supabase.from('products').insert({
+      store_id: storeId,
+      name: metadata.newName,
+      price: metadata.price,
+      cost: cost,
+      current_stock: metadata.pendingQty, // Ya le sumamos lo que llegó
+      min_stock_alert: 5
+    }).select().single();
+
+    if (error) {
+      return { responseText: `❌ Error al crear producto: ${error.message}` };
+    }
+
+    // Registrar también el movimiento de inventario para que aparezca en el historial
+    await supabase.from('inventory_movements').insert({
+      store_id: storeId,
+      product_id: newProd.id,
+      quantity_change: metadata.pendingQty,
+      type: 'restock',
+      description: 'Registro inicial de producto nuevo'
+    });
+
+    return {
+      responseText: `✅ ¡Producto creado con éxito!\n\n📦 *${newProd.name}*\n💰 Precio: $${newProd.price}\n📥 Stock inicial: ${metadata.pendingQty}\n\n¿Quieres hacer algo más?`
+    };
   }
 
   return { responseText: "" }; // Fallback si no detecta intención natural clara
