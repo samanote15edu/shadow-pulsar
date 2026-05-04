@@ -54,38 +54,50 @@ export async function handleCommand(
 
   console.log(`[DEBUG] handleCommand: "${s}" | Step: ${currentStep}`);
 
+  const isPositive = (text: string) => {
+    const clean = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').trim();
+    return ['si', 's', 'yes', 'va', 'dale', 'confirmar', 'acepto'].includes(clean);
+  };
+  const isNegative = (text: string) => {
+    const clean = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').trim();
+    return ['no', 'n', 'cancelar', 'parar', 'reset'].includes(clean);
+  };
+
   // 0. COMANDO GLOBAL: SALIR
-  if (['salir', 'cancelar', 'reset', 'parar'].includes(s)) {
+  if (isNegative(s) && !currentStep) {
     return {
       responseText: "👋 Entendido. He cancelado el proceso actual. ¿En qué más puedo ayudarte?",
-      nextStep: undefined, // Esto disparará el borrado del estado en index.ts
+      nextStep: undefined,
       metadata: {}
     };
   }
 
   // 1. MANEJAR RESPUESTAS A PREGUNTAS (ESTADOS)
-  if (currentStep === 'awaiting_similarity_confirmation' || currentStep === 'awaiting_sale_confirmation') {
-    const isPositive = ['si', 'sí', 's', 'yes', 'va', 'dale'].includes(s);
-    const isNegative = ['no', 'n', 'cancelar'].includes(s);
-
-    if (isPositive) {
+  if (currentStep === 'awaiting_similarity_confirmation' || currentStep === 'awaiting_sale_confirmation' || currentStep === 'awaiting_new_store_confirmation') {
+    if (isPositive(s)) {
       if (currentStep === 'awaiting_sale_confirmation') {
         return {
           responseText: `✅ Venta registrada de **${metadata.qty} ${metadata.productName}**. Total: $${metadata.total}`,
           metadata: { intent: 'SALE', productId: metadata.productId, qty: metadata.qty, total: metadata.total }
         };
       }
+      if (currentStep === 'awaiting_new_store_confirmation') {
+        return {
+          responseText: `✅ Tienda **"${metadata.newStoreName}"** creada con éxito.`,
+          metadata: { intent: 'CREATE_NEW_BRANCH', name: metadata.newStoreName }
+        };
+      }
       return {
         responseText: `✅ ¡Listo! Registré **${metadata.pendingQty} ${metadata.suggestedName}** en el inventario.`,
         metadata: { intent: 'RESTOCK', productId: metadata.suggestedId, qty: metadata.pendingQty }
       };
-    } else if (isNegative) {
-      // SI ES VENTA -> CANCELAR
-      if (currentStep === 'awaiting_sale_confirmation') {
-        return { responseText: "❌ Venta cancelada." };
+    } else if (isNegative(s)) {
+      // CANCELACIONES
+      if (currentStep === 'awaiting_sale_confirmation' || currentStep === 'awaiting_new_store_confirmation') {
+        return { responseText: "❌ Operación cancelada." };
       }
       
-      // SI ES RESURTIDO -> OFRECER REGISTRO NUEVO
+      // RESURTIDO -> REGISTRO NUEVO
       return {
         responseText: `✨ Entendido. Vamos a registrar **"${metadata.newName}"** como producto nuevo.\n\n¿A qué **precio de venta** lo vas a dar?`,
         nextStep: 'awaiting_new_product_price',
@@ -136,16 +148,6 @@ export async function handleCommand(
       nextStep: 'awaiting_new_store_confirmation',
       metadata: { newStoreName: text }
     };
-  }
-
-  if (currentStep === 'awaiting_new_store_confirmation') {
-    if (['si', 'sí', 's', 'yes'].includes(s)) {
-      return {
-        responseText: `✅ Tienda **"${metadata.newStoreName}"** creada con éxito.`,
-        metadata: { intent: 'CREATE_NEW_BRANCH', name: metadata.newStoreName }
-      };
-    }
-    return { responseText: "Cancelado.", metadata: {} };
   }
 
   // 2. DETECTAR NUEVA INTENCIÓN
