@@ -83,7 +83,8 @@ export async function handleCommand(
       }
       if (currentStep === 'awaiting_new_store_confirmation') {
         return {
-          responseText: `✅ Tienda **"${metadata.newStoreName}"** creada con éxito.`,
+          responseText: `✅ Tienda **"${metadata.newStoreName}"** creada con éxito.\n\n¿Te gustaría dar de alta tu primer producto? 📦`,
+          nextStep: 'awaiting_first_product_choice',
           metadata: { intent: 'CREATE_NEW_BRANCH', name: metadata.newStoreName }
         };
       }
@@ -92,6 +93,9 @@ export async function handleCommand(
         metadata: { intent: 'RESTOCK', productId: metadata.suggestedId, qty: metadata.pendingQty }
       };
     } else if (isNegative(s)) {
+      if (currentStep === 'awaiting_first_product_choice') {
+        return { responseText: "👍 ¡Entendido! Sabías que puedes registrar productos en el futuro escribiendo *'Surtido'* o simplemente *'Llegaron 5 cocas'*.\n\n¿En qué más te ayudo?" };
+      }
       // CANCELACIONES
       if (currentStep === 'awaiting_sale_confirmation' || currentStep === 'awaiting_new_store_confirmation') {
         return { responseText: "❌ Operación cancelada." };
@@ -106,16 +110,40 @@ export async function handleCommand(
     }
   }
 
-  // 1.1 Capturar Precio de Venta (Nuevo Producto)
-  if (currentStep === 'awaiting_new_product_price') {
-    const price = parseFloat(s.replace(/[^0-9.]/g, ''));
-    if (isNaN(price)) {
-      return { responseText: "❌ Por favor envía solo el número del precio (ej: 25)." };
-    }
+  // 1.0 Flujo de Primer Producto
+  if (currentStep === 'awaiting_first_product_choice') {
     return {
-      responseText: `💰 ¡Bien! ¿Y cuánto te **costó** cada unidad?`,
+      responseText: "✍️ ¡Excelente! ¿Cuál es el **nombre** del producto?\n\n_(Ej: Coca Cola 600ml)_",
+      nextStep: 'awaiting_first_product_name'
+    };
+  }
+
+  if (currentStep === 'awaiting_first_product_name') {
+    return {
+      responseText: `📦 ¿Cuántas unidades de **"${text}"** tienes ahora mismo?`,
+      nextStep: 'awaiting_new_product_price', // Saltamos al flujo que ya pide precio/costo
+      metadata: { newName: text, pendingQty: 0 } // El usuario enviará el stock ahora
+    };
+  }
+
+  // Reutilizamos el resto de los flujos de precio/costo
+  if (currentStep === 'awaiting_new_product_price') {
+    const val = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(val)) return { responseText: "❌ Por favor envía solo el número (ej: 25)." };
+    
+    // Si no tenemos qty todavía (venimos de el flujo de nombre), este número es la cantidad
+    if (metadata.pendingQty === 0) {
+      return {
+        responseText: `💰 ¡Bien! ¿A qué **precio de venta** lo vas a dar?`,
+        nextStep: 'awaiting_new_product_price',
+        metadata: { ...metadata, pendingQty: val }
+      };
+    }
+
+    return {
+      responseText: `💰 ¿Y cuánto te **costó** cada unidad?`,
       nextStep: 'awaiting_new_product_cost',
-      metadata: { ...metadata, price }
+      metadata: { ...metadata, price: val }
     };
   }
 
