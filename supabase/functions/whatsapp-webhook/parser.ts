@@ -249,12 +249,21 @@ export async function handleCommand(
   }
 
   if (intentResult.intent === 'DEBT_QUERY') {
-    // Lógica para fiados...
+    // Lógica para fiados en V2 (Pendiente implementar completa)
   }
 
-  // ... (Resto de la lógica anterior sigue aquí como fallback)
+  return { responseText: "" }; // Fallback si no detecta intención natural clara
+}
 
-  const cleanMsg = text.trim();
+export async function executeCommand(
+  message: string, 
+  supabase: SupabaseClient, 
+  storeId: string,
+  userRole: string,
+  userPhone: string,
+  userId: string
+): Promise<CommandResponse> {
+  const cleanMsg = message.trim();
   const lowerMsg = cleanMsg.toLowerCase();
   
   // 1. Ayuda / Menu
