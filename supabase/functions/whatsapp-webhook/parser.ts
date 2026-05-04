@@ -8,6 +8,28 @@ export interface CommandResponse {
 
 export function detectIntent(text: string): any {
   const s = text.toLowerCase().trim();
+
+  // 1. Comandos Administrativos (Prioridad Máxima)
+  if (s === 'inventario' || s === 'stock') return { intent: 'GET_INVENTORY' };
+  if (s === 'ayuda' || s === 'help' || s === 'comandos' || s === '?') return { intent: 'HELP' };
+  if (s === 'link' || s === 'enlace' || s === 'panel') return { intent: 'GET_LINK' };
+  if (s === 'cambiar' || s === 'sucursal' || s === 'tienda') return { intent: 'SWITCH_STORE' };
+  if (s.includes('nueva tienda') || s.includes('registrar sucursal')) return { intent: 'CREATE_STORE' };
+  if (s === 'cierre' || s === 'corte' || s === 'caja') return { intent: 'CASH_CLOSE' };
+  if (s.includes('anular') || s.includes('borrar venta')) return { intent: 'VOID_SALE' };
+  if (s === 'auditoria' || s === 'revisar stock') return { intent: 'AUDIT_INVENTORY' };
+
+  // 2. Abonos
+  if (s.includes('abono') || s.includes('pago')) {
+    const qtyMatch = s.match(/(\d+)/);
+    const amount = qtyMatch ? parseFloat(qtyMatch[1]) : 0;
+    let customer = s.replace(/abono|pago|a|\d+/g, '').trim();
+    if (amount > 0 || customer.length > 0) {
+      return { intent: 'PAYMENT_LEDGER', amount, customer };
+    }
+  }
+
+  // 3. Ventas y Surtidos
   const restockKeywords = ['llegaron', 'llego', 'llegó', 'trajeron', 'trajo', 'resurtir', 'recibi', 'recibí', 'surtido', 'entrada'];
   const saleKeywords = ['vendi', 'vendí', 'vender', 'venta', 'sale', 'dame', 'ponme', 'despacha'];
   
@@ -29,28 +51,6 @@ export function detectIntent(text: string): any {
     saleKeywords.forEach(k => product = product.replace(k, ''));
     product = product.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
     return { intent: 'SALE', qty, product };
-  }
-
-  // Comandos Administrativos
-  if (s === 'cambiar' || s === 'sucursal' || s === 'tienda') return { intent: 'SWITCH_STORE' };
-  if (s.includes('nueva tienda') || s.includes('registrar sucursal')) return { intent: 'CREATE_STORE' };
-  if (s === 'link' || s === 'enlace' || s === 'panel') return { intent: 'GET_LINK' };
-  if (s === 'inventario' || s === 'stock') return { intent: 'GET_INVENTORY' };
-  if (s === 'ayuda' || s === 'help' || s === 'comandos' || s === '?') return { intent: 'HELP' };
-
-  // Caja / Cierres
-  if (s === 'cierre' || s === 'corte' || s === 'caja') return { intent: 'CASH_CLOSE' };
-
-  // Auditoría y Anulación
-  if (s.includes('anular') || s.includes('borrar venta')) return { intent: 'VOID_SALE' };
-  if (s === 'auditoria' || s === 'revisar stock') return { intent: 'AUDIT_INVENTORY' };
-
-  // Abonos
-  if (s.includes('abono') || s.includes('pago')) {
-    const qtyMatch = s.match(/(\d+)/);
-    const amount = qtyMatch ? parseFloat(qtyMatch[1]) : 0;
-    let customer = s.replace(/abono|pago|a|\d+/g, '').trim();
-    return { intent: 'PAYMENT_LEDGER', amount, customer };
   }
 
   return { intent: 'UNKNOWN' };
