@@ -9,22 +9,25 @@ export interface CommandResponse {
 export function detectIntent(text: string): any {
   const s = text.toLowerCase().trim();
   const restockKeywords = ['llegaron', 'llego', 'llegó', 'trajeron', 'trajo', 'resurtir', 'recibi', 'recibí', 'surtido', 'entrada'];
+  const saleKeywords = ['vendi', 'vendí', 'vender', 'venta', 'sale', 'dame', 'ponme', 'despacha'];
   
   const isRestock = restockKeywords.some(k => s.includes(k));
+  const isSale = saleKeywords.some(k => s.includes(k)) || /^\d+/.test(s);
+  
   const qtyMatch = s.match(/(\d+)/);
   const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
 
   if (isRestock) {
-    // Limpiar el texto para sacar el nombre del producto
     let product = s;
     restockKeywords.forEach(k => product = product.replace(k, ''));
     product = product.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
     return { intent: 'RESTOCK', qty, product };
   }
 
-  // Si empieza con número (ej: "2 cocas"), es una VENTA por defecto
-  if (/^\d+/.test(s)) {
-    const product = s.replace(/^\d+/, '').trim();
+  if (isSale) {
+    let product = s;
+    saleKeywords.forEach(k => product = product.replace(k, ''));
+    product = product.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
     return { intent: 'SALE', qty, product };
   }
 
