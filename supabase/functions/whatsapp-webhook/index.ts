@@ -1564,25 +1564,25 @@ serve(async (req) => {
       const convRes = await handleCommand(text, profile.store_id, supabase, profile.full_name || 'Amigo');
       console.timeEnd('conversationalHandler');
 
-      if (convRes && convRes.nextStep) {
-        // Si el parser conversacional detectó una intención y requiere confirmación
-        await supabase.from('registration_states').upsert({ 
-          whatsapp_number: from, 
-          step: convRes.nextStep, 
-          metadata: convRes.metadata,
-          updated_at: new Date().toISOString() 
-        });
+      if (convRes && convRes.responseText) {
+        // Si hay un siguiente paso, guardarlo
+        if (convRes.nextStep) {
+          await supabase.from('registration_states').upsert({ 
+            whatsapp_number: from, 
+            step: convRes.nextStep, 
+            metadata: convRes.metadata,
+            updated_at: new Date().toISOString() 
+          });
+        }
 
-        if (convRes.responseText) {
-          // Si es una confirmación, enviar botones
-          if (convRes.nextStep.includes('confirmation') || convRes.nextStep.includes('guided')) {
-            await sendWhatsAppButtons(from, convRes.responseText, [
-              { id: 'yes', title: 'SÍ ✅' },
-              { id: 'no', title: 'NO ❌' }
-            ]);
-          } else {
-            await sendWhatsAppMessage(from, convRes.responseText);
-          }
+        // Si es una confirmación, enviar botones
+        if (convRes.nextStep && (convRes.nextStep.includes('confirmation') || convRes.nextStep.includes('guided'))) {
+          await sendWhatsAppButtons(from, convRes.responseText, [
+            { id: 'yes', title: 'SÍ ✅' },
+            { id: 'no', title: 'NO ❌' }
+          ]);
+        } else {
+          await sendWhatsAppMessage(from, convRes.responseText);
         }
         
         await supabase.from('webhook_idempotency').update({ status: 'completed' }).eq('id', messageId);
