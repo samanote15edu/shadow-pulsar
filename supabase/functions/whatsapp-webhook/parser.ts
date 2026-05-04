@@ -224,29 +224,42 @@ export async function handleCommand(
       searchTerm = searchTerm.slice(0, -1);
     }
 
-    // Intentar buscar el producto de forma difusa
-    const { data: fuzzyProds } = await supabase.rpc('fuzzy_search_products', {
-      search_text: searchTerm,
-      store_id_param: storeId,
-      similarity_threshold: 0.2 // Más permisivo
-    });
+    if (fuzzyProds && fuzzyProds.length > 0) {
+      const bestMatch = fuzzyProds[0];
+      const qty = intentResult.entities.qty || 1;
 
-      // Si encontramos algo razonable (>0.2), pedir confirmación
-      return {
-        responseText: `📦 Entendido. Detecté que quieres **resurtir ${qty} unidades** de **${bestMatch.name}**.\n\n¿Es correcto?`,
-        nextStep: 'awaiting_restock_qty_guided', 
-        metadata: {
-          productId: bestMatch.id,
-          productName: bestMatch.name,
-          qty: qty,
-          intent: 'RESTOCK'
-        }
-      };
+      // ESCENARIO A: Coincidencia ALTA (>0.5) -> Confirmación Directa
+      if (bestMatch.similarity > 0.5) {
+        return {
+          responseText: `📦 Entendido. Detecté que quieres **resurtir ${qty} unidades** de **${bestMatch.name}**.\n\n¿Es correcto?`,
+          nextStep: 'awaiting_restock_qty_guided', 
+          metadata: {
+            productId: bestMatch.id,
+            productName: bestMatch.name,
+            qty: qty,
+            intent: 'RESTOCK'
+          }
+        };
+      } 
+      
+      // ESCENARIO B: Coincidencia MEDIA (0.15 - 0.5) -> Sugerencia "Did you mean?"
+      else {
+        return {
+          responseText: `🔍 No encontré "${intentResult.entities.product}", pero tengo **"${bestMatch.name}"**.\n\n¿Te refieres a ese o es un producto nuevo?`,
+          nextStep: 'awaiting_similarity_confirmation',
+          metadata: {
+            suggestedId: bestMatch.id,
+            suggestedName: bestMatch.name,
+            newName: intentResult.entities.product,
+            pendingQty: qty
+          }
+        };
+      }
     } else {
-      // Si no encuentra el producto, ofrecer crearlo
+      // ESCENARIO C: Sin coincidencias -> Ofrecer crear nuevo
       return {
-        responseText: `🔍 No encontré ningún producto parecido a "${intentResult.entities.product}" en tu inventario.\n\n¿Quieres registrarlo como un producto nuevo?`,
-        nextStep: 'awaiting_new_product_details', // Nuevo estado para empezar el registro
+        responseText: `🔍 No encontré nada parecido a "${intentResult.entities.product}".\n\n¿Quieres registrarlo como un producto nuevo?`,
+        nextStep: 'awaiting_new_product_details',
         metadata: {
           newName: intentResult.entities.product,
           pendingQty: intentResult.entities.qty || 1
@@ -255,7 +268,36 @@ export async function handleCommand(
     }
   }
 
-  // --- 4. MANEJAR RESPUESTAS A PREGUNTAS GUIADAS (CONVERSATION STATES) ---
+  // --- 4. MANEJAR RESPUESTAS A SUGERENCIAS (DID YOU MEAN?) ---
+  if (currentStep === 'awaiting_similarity_confirmation') {
+    const isPositive = ['si', 'sí', 'va', 'dale', 'yes', 's'].includes(s) || s.includes(metadata?.suggestedName?.toLowerCase());
+    
+    if (isPositive) {
+      // El usuario confirmó que era el producto sugerido
+      return {
+        responseText: `✅ ¡Perfecto! Registrando **resurtido de ${metadata.pendingQty}** para **${metadata.suggestedName}**.`,
+        nextStep: 'awaiting_restock_qty_guided', // Reusar flujo de confirmación de resurtido
+        metadata: {
+          productId: metadata.suggestedId,
+          productName: metadata.suggestedName,
+          qty: metadata.pendingQty,
+          intent: 'RESTOCK'
+        }
+      };
+    } else {
+      // El usuario dice que NO es el sugerido, es uno NUEVO
+      return {
+        responseText: `✨ Entendido. Vamos a registrar **"${metadata.newName}"** como producto nuevo.\n\n¿A qué **precio** lo vas a vender?`,
+        nextStep: 'awaiting_new_product_price',
+        metadata: {
+          newName: metadata.newName,
+          pendingQty: metadata.pendingQty
+        }
+      };
+    }
+  }
+
+  // --- 5. MANEJAR RESPUESTAS A PREGUNTAS GUIADAS (CONVERSATION STATES) ---
   // Esta lógica se activa cuando el usuario responde a una pregunta del bot
   if (currentStep === 'awaiting_new_product_details') {
     const isPositive = ['si', 'sí', 'va', 'dale', 'yes', 's'].includes(s);
