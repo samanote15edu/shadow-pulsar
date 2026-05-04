@@ -8,19 +8,24 @@ export interface CommandResponse {
 
 export function detectIntent(text: string): any {
   const s = text.toLowerCase().trim();
-  const keywords = {
-    restock: ['llegaron', 'llego', 'llegó', 'trajeron', 'trajo', 'resurtir', 'recibi', 'recibí'],
-    sale: ['vendi', 'vendí', 'venta', 'dame', 'ponme', 'una', 'un', '2', '3', '4', '5']
-  };
+  const restockKeywords = ['llegaron', 'llego', 'llegó', 'trajeron', 'trajo', 'resurtir', 'recibi', 'recibí', 'surtido', 'entrada'];
+  
+  const isRestock = restockKeywords.some(k => s.includes(k));
+  const qtyMatch = s.match(/(\d+)/);
+  const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
 
-  if (keywords.restock.some(k => s.includes(k))) {
-    const qty = s.match(/(\d+)/)?.[1];
-    return { intent: 'RESTOCK', qty: qty ? parseInt(qty) : 1, product: s.replace(/llegaron|llego|llegó|\d+/g, '').trim() };
+  if (isRestock) {
+    // Limpiar el texto para sacar el nombre del producto
+    let product = s;
+    restockKeywords.forEach(k => product = product.replace(k, ''));
+    product = product.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
+    return { intent: 'RESTOCK', qty, product };
   }
 
-  if (keywords.sale.some(k => s.includes(k) || /^\d+/.test(s))) {
-    const qty = s.match(/(\d+)/)?.[1];
-    return { intent: 'SALE', qty: qty ? parseInt(qty) : 1, product: s.replace(/vendi|vendí|venta|\d+/g, '').trim() };
+  // Si empieza con número (ej: "2 cocas"), es una VENTA por defecto
+  if (/^\d+/.test(s)) {
+    const product = s.replace(/^\d+/, '').trim();
+    return { intent: 'SALE', qty, product };
   }
 
   return { intent: 'UNKNOWN' };
@@ -37,42 +42,57 @@ export async function handleCommand(
   const currentStep = convState?.step;
   const metadata = convState?.metadata || {};
 
-  // 1. MANEJAR ESTADOS EXISTENTES (ALTA PRIORIDAD)
+  console.log(`[DEBUG] handleCommand: "${s}" | Step: ${currentStep}`);
+
+  // 1. MANEJAR RESPUESTAS A PREGUNTAS (ESTADOS)
   if (currentStep === 'awaiting_similarity_confirmation') {
-    if (['si', 'sí', 's', 'yes'].includes(s)) {
+    const isPositive = ['si', 'sí', 's', 'yes', 'va', 'dale'].includes(s);
+    if (isPositive) {
       return {
-        responseText: `✅ Resurtido de **${metadata.pendingQty} ${metadata.suggestedName}** registrado.`,
+        responseText: `✅ ¡Listo! Registré **${metadata.pendingQty} ${metadata.suggestedName}** en el inventario.`,
         metadata: { intent: 'RESTOCK', productId: metadata.suggestedId, qty: metadata.pendingQty }
+      };
+    } else {
+      return {
+        responseText: `✨ Entendido. Vamos a registrar **"${metadata.newName}"** como producto nuevo.\n\n¿A qué **precio** lo vas a vender?`,
+        nextStep: 'awaiting_new_product_price',
+        metadata: { newName: metadata.newName, pendingQty: metadata.pendingQty }
       };
     }
   }
 
   // 2. DETECTAR NUEVA INTENCIÓN
-  const res = detectIntent(text);
-  if (res.intent === 'RESTOCK') {
-    // Búsqueda rápida
+  const intentResult = detectIntent(text);
+  console.log(`[DEBUG] Intent: ${intentResult.intent} | Product: "${intentResult.product}"`);
+
+  if (intentResult.intent === 'RESTOCK' && intentResult.product) {
+    let searchTerm = intentResult.product;
+    // Normalización básica de plurales (cocas -> coca)
+    if (searchTerm.endsWith('s') && searchTerm.length > 3) searchTerm = searchTerm.slice(0, -1);
+
     const { data: fuzzy } = await supabase.rpc('fuzzy_search_products', {
-      search_text: res.product.replace(/s$/, ''),
+      search_text: searchTerm,
       store_id_param: storeId,
       similarity_threshold: 0.1
     });
 
     if (fuzzy && fuzzy.length > 0) {
       const best = fuzzy[0];
-      if (best.similarity > 0.5) {
+      if (best.similarity > 0.4) {
         return {
-          responseText: `📦 ¿Confirmas ${res.qty} de **${best.name}**?`,
-          nextStep: 'awaiting_restock_qty_guided',
-          metadata: { productId: best.id, productName: best.name, qty: res.qty }
-        };
-      } else {
-        return {
-          responseText: `🔍 ¿Te refieres a **${best.name}** o es nuevo?`,
+          responseText: `📦 ¿Confirmas resurtido de **${intentResult.qty} ${best.name}**?`,
           nextStep: 'awaiting_similarity_confirmation',
-          metadata: { suggestedId: best.id, suggestedName: best.name, newName: res.product, pendingQty: res.qty }
+          metadata: { suggestedId: best.id, suggestedName: best.name, pendingQty: intentResult.qty, newName: intentResult.product }
         };
       }
     }
+
+    // Si no hay match, ofrecer crear nuevo
+    return {
+      responseText: `🔍 No encontré "${intentResult.product}" en tu inventario.\n\n¿Quieres registrarlo como **producto nuevo**?`,
+      nextStep: 'awaiting_similarity_confirmation', // Reusamos el estado para SI/NO
+      metadata: { newName: intentResult.product, pendingQty: intentResult.qty, isNew: true }
+    };
   }
 
   return { responseText: "" };
