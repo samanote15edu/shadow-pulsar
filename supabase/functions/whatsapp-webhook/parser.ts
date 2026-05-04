@@ -212,7 +212,12 @@ export async function handleCommand(
 
   // 1. DETECCIÓN DE INTENCIÓN (V2)
   const intentResult = detectIntent(text);
-  console.log("Intent Detected:", intentResult);
+  
+  // DEBUG FORCE: Responder siempre si detectamos ALGO
+  if (intentResult.intent !== 'UNKNOWN') {
+    const debugMsg = `🧪 [DEBUG V2]\nIntent: ${intentResult.intent}\nProd: ${intentResult.entities.product}\nQty: ${intentResult.entities.qty}\nConf: ${intentResult.confidence}`;
+    return { responseText: debugMsg }; 
+  }
 
   // 2. RUTAS DE COMANDOS MANUALES (Mantener compatibilidad)
   if (s === '/start' || s === 'hola' || s === 'menu' || s === 'menú') {
