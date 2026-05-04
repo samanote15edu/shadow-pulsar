@@ -104,6 +104,16 @@ export async function handleCommand(
           metadata: { intent: 'CREATE_NEW_BRANCH', name: metadata.newStoreName }
         };
       }
+
+      // Si no hay suggestedId, es un producto NUEVO que estamos registrando tras un fallo de búsqueda
+      if (!metadata.suggestedId) {
+        return {
+          responseText: `✨ Entendido. Vamos a registrar **"${metadata.newName}"** como producto nuevo.\n\n¿A qué **precio de venta** lo vas a dar?`,
+          nextStep: 'awaiting_new_product_price',
+          metadata: { newName: metadata.newName, pendingQty: metadata.pendingQty }
+        };
+      }
+
       return {
         responseText: `✅ ¡Listo! Registré **${metadata.pendingQty} ${metadata.suggestedName}** en el inventario.`,
         metadata: { intent: 'RESTOCK', productId: metadata.suggestedId, qty: metadata.pendingQty }
