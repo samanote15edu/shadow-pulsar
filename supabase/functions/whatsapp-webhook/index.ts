@@ -118,11 +118,32 @@ serve(async (req) => {
     const convRes = await handleCommand(text, profile.store_id, supabase, profile.full_name || 'Amigo', convState);
 
     if (convRes && convRes.responseText) {
+      const meta = convRes.metadata;
+
+      // --- EJECUCIÓN DE COMANDOS EN DB ---
+      if (!convRes.nextStep && meta?.intent === 'RESTOCK') {
+        await supabase.rpc('increment_stock', { row_id: meta.productId, amount: meta.qty });
+        await supabase.from('transactions').insert({ store_id: profile.store_id, product_id: meta.productId, type: 'restock', quantity_change: meta.qty });
+      }
+
+      if (!convRes.nextStep && meta?.intent === 'CREATE_PRODUCT') {
+        const { data: newProd } = await supabase.from('products').insert({
+          store_id: profile.store_id,
+          name: meta.name,
+          base_price: meta.price,
+          last_cost_price: meta.cost,
+          current_stock: meta.qty
+        }).select().single();
+        if (newProd) {
+          await supabase.from('transactions').insert({ store_id: profile.store_id, product_id: newProd.id, type: 'restock', quantity_change: meta.qty, unit_price: meta.cost });
+        }
+      }
+
       if (convRes.nextStep) {
         await supabase.from('registration_states').upsert({ 
           whatsapp_number: from, 
           step: convRes.nextStep, 
-          metadata: convRes.metadata 
+          metadata: meta 
         });
       } else {
         await supabase.from('registration_states').delete().eq('whatsapp_number', from);

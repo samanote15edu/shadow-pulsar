@@ -44,6 +44,15 @@ export async function handleCommand(
 
   console.log(`[DEBUG] handleCommand: "${s}" | Step: ${currentStep}`);
 
+  // 0. COMANDO GLOBAL: SALIR
+  if (['salir', 'cancelar', 'reset', 'parar'].includes(s)) {
+    return {
+      responseText: "👋 Entendido. He cancelado el proceso actual. ¿En qué más puedo ayudarte?",
+      nextStep: undefined, // Esto disparará el borrado del estado en index.ts
+      metadata: {}
+    };
+  }
+
   // 1. MANEJAR RESPUESTAS A PREGUNTAS (ESTADOS)
   if (currentStep === 'awaiting_similarity_confirmation') {
     const isPositive = ['si', 'sí', 's', 'yes', 'va', 'dale'].includes(s);
@@ -54,11 +63,44 @@ export async function handleCommand(
       };
     } else {
       return {
-        responseText: `✨ Entendido. Vamos a registrar **"${metadata.newName}"** como producto nuevo.\n\n¿A qué **precio** lo vas a vender?`,
+        responseText: `✨ Entendido. Vamos a registrar **"${metadata.newName}"** como producto nuevo.\n\n¿A qué **precio de venta** lo vas a dar?`,
         nextStep: 'awaiting_new_product_price',
         metadata: { newName: metadata.newName, pendingQty: metadata.pendingQty }
       };
     }
+  }
+
+  // 1.1 Capturar Precio de Venta (Nuevo Producto)
+  if (currentStep === 'awaiting_new_product_price') {
+    const price = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(price)) {
+      return { responseText: "❌ Por favor envía solo el número del precio (ej: 25)." };
+    }
+    return {
+      responseText: `💰 ¡Bien! ¿Y cuánto te **costó** cada unidad?`,
+      nextStep: 'awaiting_new_product_cost',
+      metadata: { ...metadata, price }
+    };
+  }
+
+  // 1.2 Capturar Costo y Finalizar (Nuevo Producto)
+  if (currentStep === 'awaiting_new_product_cost') {
+    const cost = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(cost)) {
+      return { responseText: "❌ Por favor envía solo el número del costo (ej: 18)." };
+    }
+
+    // Aquí index.ts se encargará de insertar en la DB basándose en esta respuesta
+    return {
+      responseText: `✅ *¡Producto Registrado!* ✨\n\nNombre: ${metadata.newName}\nStock inicial: +${metadata.pendingQty}\nPrecio: $${metadata.price}\nCosto: $${cost}`,
+      metadata: { 
+        intent: 'CREATE_PRODUCT', 
+        name: metadata.newName, 
+        price: metadata.price, 
+        cost: cost, 
+        qty: metadata.pendingQty 
+      }
+    };
   }
 
   // 2. DETECTAR NUEVA INTENCIÓN
