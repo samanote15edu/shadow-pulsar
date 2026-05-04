@@ -201,7 +201,14 @@ export async function handleCommand(
       return {
         responseText: `🥤 ¿Confirmas venta de **${intentResult.qty} ${bestMatch.name}**?\n\nTOTAL: *$${total}*`,
         nextStep: 'awaiting_sale_confirmation',
-        metadata: { productId: bestMatch.id, productName: bestMatch.name, qty: intentResult.qty, price: bestMatch.base_price, total }
+        metadata: { 
+          productId: bestMatch.id, 
+          productName: bestMatch.name, 
+          newName: intentResult.product, // Guardamos el nombre original por si acaso
+          qty: intentResult.qty, 
+          price: bestMatch.base_price, 
+          total 
+        }
       };
     }
 
