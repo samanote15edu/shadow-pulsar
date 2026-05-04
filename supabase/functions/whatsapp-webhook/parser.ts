@@ -65,6 +65,8 @@ export async function handleCommand(
   // 1. MANEJAR RESPUESTAS A PREGUNTAS (ESTADOS)
   if (currentStep === 'awaiting_similarity_confirmation' || currentStep === 'awaiting_sale_confirmation') {
     const isPositive = ['si', 'sí', 's', 'yes', 'va', 'dale'].includes(s);
+    const isNegative = ['no', 'n', 'cancelar'].includes(s);
+
     if (isPositive) {
       if (currentStep === 'awaiting_sale_confirmation') {
         return {
@@ -76,7 +78,13 @@ export async function handleCommand(
         responseText: `✅ ¡Listo! Registré **${metadata.pendingQty} ${metadata.suggestedName}** en el inventario.`,
         metadata: { intent: 'RESTOCK', productId: metadata.suggestedId, qty: metadata.pendingQty }
       };
-    } else {
+    } else if (isNegative) {
+      // SI ES VENTA -> CANCELAR
+      if (currentStep === 'awaiting_sale_confirmation') {
+        return { responseText: "❌ Venta cancelada." };
+      }
+      
+      // SI ES RESURTIDO -> OFRECER REGISTRO NUEVO
       return {
         responseText: `✨ Entendido. Vamos a registrar **"${metadata.newName}"** como producto nuevo.\n\n¿A qué **precio de venta** lo vas a dar?`,
         nextStep: 'awaiting_new_product_price',
