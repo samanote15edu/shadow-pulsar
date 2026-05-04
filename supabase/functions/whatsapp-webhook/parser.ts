@@ -224,6 +224,13 @@ export async function handleCommand(
       searchTerm = searchTerm.slice(0, -1);
     }
 
+    // Intentar buscar el producto de forma difusa
+    const { data: fuzzyProds } = await supabase.rpc('fuzzy_search_products', {
+      search_text: searchTerm,
+      store_id_param: storeId,
+      similarity_threshold: 0.15 
+    });
+
     if (fuzzyProds && fuzzyProds.length > 0) {
       const bestMatch = fuzzyProds[0];
       const qty = intentResult.entities.qty || 1;
