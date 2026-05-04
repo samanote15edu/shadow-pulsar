@@ -156,16 +156,42 @@ serve(async (req) => {
         }
       }
 
-      if (!convRes.nextStep && meta?.intent === 'SALE') {
+      if (!convRes.nextStep && meta?.intent === 'PROCESS_SALE') {
+        // 1. Descontar Stock
         await supabase.rpc('increment_stock', { row_id: meta.productId, amount: -meta.qty });
+
+        // 2. Manejar Deuda si existe
+        let customerId = null;
+        if (meta.debt > 0 && meta.customerName) {
+          let { data: ledger } = await supabase.from('fiado_ledgers').select('*').eq('store_id', profile.store_id).ilike('customer_name', meta.customerName).maybeSingle();
+          if (!ledger) {
+            const { data: newL } = await supabase.from('fiado_ledgers').insert({ store_id: profile.store_id, customer_name: meta.customerName, current_balance: meta.debt }).select().single();
+            ledger = newL;
+          } else {
+            await supabase.from('fiado_ledgers').update({ current_balance: (ledger.current_balance || 0) + meta.debt, last_update_at: new Date().toISOString() }).eq('id', ledger.id);
+          }
+          customerId = ledger.id;
+        }
+
+        // 3. Registrar Transacción
         await supabase.from('transactions').insert({ 
           store_id: profile.store_id, 
           product_id: meta.productId, 
           type: 'sale', 
           quantity_change: -meta.qty, 
           total_amount: meta.total,
-          amount_received: meta.total // Asumimos pago completo por ahora
+          amount_received: meta.amountReceived || meta.total,
+          customer_id: customerId
         });
+
+        // 4. Alerta de Stock Bajo (Ejecución silenciosa)
+        const { data: prod } = await supabase.from('products').select('name, current_stock, min_stock_alert').eq('id', meta.productId).single();
+        if (prod && prod.current_stock <= prod.min_stock_alert) {
+          const { data: owner } = await supabase.from('profiles').select('whatsapp_number').eq('store_id', profile.store_id).eq('role', 'owner').maybeSingle();
+          if (owner) {
+            await sendWhatsAppMessage(owner.whatsapp_number, `⚠️ *ALERTA DE STOCK BAJO*\n\nEl producto *${prod.name}* tiene solo *${prod.current_stock}* unidades. Es momento de resurtir.`);
+          }
+        }
       }
 
       if (!convRes.nextStep && meta?.intent === 'UPDATE_PROFILE_STORE') {
@@ -182,6 +208,43 @@ serve(async (req) => {
           // Cambiar automáticamente a la nueva tienda
           await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', profile.id);
         }
+      }
+
+      if (!convRes.nextStep && meta?.intent === 'PROCESS_ABONO') {
+        const { data: ledger } = await supabase.from('fiado_ledgers').select('current_balance').eq('id', meta.customerId).single();
+        const newBalance = Math.max(0, (ledger?.current_balance || 0) - meta.amount);
+        await supabase.from('fiado_ledgers').update({ current_balance: newBalance, last_update_at: new Date().toISOString() }).eq('id', meta.customerId);
+        await supabase.from('transactions').insert({
+          store_id: profile.store_id,
+          type: 'fiado_payment',
+          quantity_change: 0,
+          total_amount: meta.amount,
+          amount_received: meta.amount,
+          customer_id: meta.customerId,
+          notes: `Abono vía WhatsApp: ${meta.customerName}`
+        });
+      }
+
+      if (!convRes.nextStep && meta?.intent === 'PROCESS_CORTE') {
+        await supabase.from('cash_snapshots').insert({
+          store_id: profile.store_id,
+          started_at: meta.since,
+          expected_cash: meta.expected,
+          actual_cash: meta.physical,
+          status: 'closed'
+        });
+      }
+
+      if (!convRes.nextStep && meta?.intent === 'PROCESS_VOID') {
+        await supabase.from('transactions').update({ is_voided: true }).eq('id', meta.transactionId);
+        await supabase.rpc('increment_stock', { row_id: meta.productId, amount: meta.qty });
+        await supabase.from('transactions').insert({ 
+          store_id: profile.store_id, 
+          product_id: meta.productId, 
+          type: 'void', 
+          quantity_change: meta.qty, 
+          notes: `Anulación de venta ID: ${meta.transactionId}` 
+        });
       }
 
       if (convRes.nextStep) {

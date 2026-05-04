@@ -38,6 +38,21 @@ export function detectIntent(text: string): any {
   if (s === 'inventario' || s === 'stock') return { intent: 'GET_INVENTORY' };
   if (s === 'ayuda' || s === 'help' || s === 'comandos' || s === '?') return { intent: 'HELP' };
 
+  // Caja / Cierres
+  if (s === 'cierre' || s === 'corte' || s === 'caja') return { intent: 'CASH_CLOSE' };
+
+  // Auditoría y Anulación
+  if (s.includes('anular') || s.includes('borrar venta')) return { intent: 'VOID_SALE' };
+  if (s === 'auditoria' || s === 'revisar stock') return { intent: 'AUDIT_INVENTORY' };
+
+  // Abonos
+  if (s.includes('abono') || s.includes('pago')) {
+    const qtyMatch = s.match(/(\d+)/);
+    const amount = qtyMatch ? parseFloat(qtyMatch[1]) : 0;
+    let customer = s.replace(/abono|pago|a|\d+/g, '').trim();
+    return { intent: 'PAYMENT_LEDGER', amount, customer };
+  }
+
   return { intent: 'UNKNOWN' };
 }
 
@@ -77,8 +92,9 @@ export async function handleCommand(
     if (isPositive(s)) {
       if (currentStep === 'awaiting_sale_confirmation') {
         return {
-          responseText: `✅ Venta registrada de **${metadata.qty} ${metadata.productName}**. Total: $${metadata.total}`,
-          metadata: { intent: 'SALE', productId: metadata.productId, qty: metadata.qty, total: metadata.total }
+          responseText: `🥤 *Venta Confirmada*\nTotal: *$${metadata.total}*\n\n¿Deseas registrar el **pago completo** ahora?`,
+          nextStep: 'awaiting_payment_choice',
+          metadata: { ...metadata }
         };
       }
       if (currentStep === 'awaiting_new_store_confirmation') {
@@ -108,6 +124,42 @@ export async function handleCommand(
         metadata: { newName: metadata.newName, pendingQty: metadata.pendingQty }
       };
     }
+  }
+
+  // --- FLUJO DE PAGO Y DEUDA ---
+  if (currentStep === 'awaiting_payment_choice') {
+    if (isPositive(s)) {
+      return {
+        responseText: `✅ *Pago Completo Registrado.*\n\nVenta cerrada con éxito.`,
+        metadata: { intent: 'PROCESS_SALE', ...metadata, amountReceived: metadata.total }
+      };
+    } else if (isNegative(s)) {
+      return {
+        responseText: "👤 *Pago Parcial / Fiado*\n\n¿Cuánto **recibiste** en efectivo ahora mismo?",
+        nextStep: 'awaiting_paid_amount',
+        metadata: { ...metadata }
+      };
+    }
+    return { responseText: "¿Deseas registrar el pago completo? (Responde Sí/No)" };
+  }
+
+  if (currentStep === 'awaiting_paid_amount') {
+    const received = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(received)) return { responseText: "❌ Envía solo el monto recibido (ej: 10)." };
+    
+    const debt = metadata.total - received;
+    return {
+      responseText: `📝 Quedan *$${debt.toFixed(2)}* pendientes.\n\n¿A qué **cliente** le anotamos esta deuda?`,
+      nextStep: 'awaiting_debtor_name',
+      metadata: { ...metadata, amountReceived: received, debt }
+    };
+  }
+
+  if (currentStep === 'awaiting_debtor_name') {
+    return {
+      responseText: `✅ ¡Anotado! Deuda registrada para **${text}**.\n\nVenta finalizada.`,
+      metadata: { intent: 'PROCESS_SALE', ...metadata, customerName: text }
+    };
   }
 
   // 1.0 Flujo de Primer Producto
@@ -294,6 +346,148 @@ export async function handleCommand(
     msg += `✨ *Nuevos:* Si un producto no existe, te guiaré para crearlo.\n\n`;
     msg += `Escribe *'Salir'* en cualquier momento para cancelar.`;
     return { responseText: msg };
+  }
+
+  // --- FLUJO DE ABONOS ---
+  if (intentResult.intent === 'PAYMENT_LEDGER') {
+    if (!intentResult.customer) {
+      return { responseText: "👤 ¿A qué *cliente* le quieres registrar el abono?" };
+    }
+    
+    const { data: ledger } = await supabase.from('fiado_ledgers').select('*').eq('store_id', storeId).ilike('customer_name', `%${intentResult.customer}%`).maybeSingle();
+    
+    if (!ledger) {
+      return { responseText: `🔍 No encontré al cliente "${intentResult.customer}". Asegúrate de que tenga una deuda registrada.` };
+    }
+
+    return {
+      responseText: `💰 ¿Confirmas abono de **$${intentResult.amount}** para **${ledger.customer_name}**?\n\nSaldo actual: $${ledger.current_balance}`,
+      nextStep: 'awaiting_payment_ledgers_confirmation',
+      metadata: { customerId: ledger.id, customerName: ledger.customer_name, amount: intentResult.amount }
+    };
+  }
+
+  if (currentStep === 'awaiting_payment_ledgers_confirmation') {
+    if (isPositive(s)) {
+      return {
+        responseText: `✅ ¡Abono registrado! Saldo actualizado para **${metadata.customerName}**.`,
+        metadata: { intent: 'PROCESS_ABONO', customerId: metadata.customerId, amount: metadata.amount, customerName: metadata.customerName }
+      };
+    }
+    return { responseText: "❌ Abono cancelado." };
+  }
+
+  // --- FLUJO DE CIERRE DE CAJA ---
+  if (intentResult.intent === 'CASH_CLOSE') {
+    return {
+      responseText: "💰 *Cierre de Caja Ciego*\n\n¿Cuánto **efectivo físico** tienes ahora mismo en caja?\n\n_(Envía solo el número)_",
+      nextStep: 'awaiting_physical_cash'
+    };
+  }
+
+  if (currentStep === 'awaiting_physical_cash') {
+    const physical = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(physical)) return { responseText: "❌ Por favor envía solo el número (ej: 1550)." };
+
+    // Obtener último cierre para calcular lo esperado
+    let sinceTimestamp = '1970-01-01T00:00:00Z';
+    const { data: lastCorte } = await supabase.from('cash_snapshots').select('closed_at').eq('store_id', storeId).order('closed_at', { ascending: false }).limit(1).maybeSingle();
+    if (lastCorte) sinceTimestamp = lastCorte.closed_at;
+
+    const { data: txs } = await supabase.from('transactions').select('amount_received').eq('store_id', storeId).gt('created_at', sinceTimestamp).is('is_voided', false);
+    const expected = txs?.reduce((sum, tx) => sum + (Number(tx.amount_received) || 0), 0) || 0;
+    const diff = physical - expected;
+
+    let resMsg = `📊 *Resumen de Cierre*\n\n`;
+    resMsg += `• Efectivo Real: *$${physical.toFixed(2)}*\n`;
+    resMsg += `• Sistema Espera: $${expected.toFixed(2)}\n`;
+    resMsg += `---------------------------\n`;
+    resMsg += `• Diferencia: *${diff >= 0 ? '+' : ''}$${diff.toFixed(2)}* ${diff === 0 ? '✅' : '⚠️'}\n\n`;
+    resMsg += `¿Confirmas el cierre del turno?`;
+
+    return {
+      responseText: resMsg,
+      nextStep: 'awaiting_corte_confirmation',
+      metadata: { physical, expected, diff, since: sinceTimestamp }
+    };
+  }
+
+  if (currentStep === 'awaiting_corte_confirmation') {
+    if (isPositive(s)) {
+      return {
+        responseText: "✅ *Caja Cerrada*. El registro ha sido guardado.",
+        metadata: { intent: 'PROCESS_CORTE', physical: metadata.physical, expected: metadata.expected, since: metadata.since }
+      };
+    }
+    return { responseText: "❌ Corte cancelado." };
+  }
+
+  // --- FLUJO DE ANULACIÓN ---
+  if (intentResult.intent === 'VOID_SALE') {
+    const { data: lastTx } = await supabase.from('transactions').select('*, products(name)').eq('store_id', storeId).eq('type', 'sale').is('is_voided', false).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    
+    if (!lastTx) return { responseText: "🔍 No encontré ninguna venta reciente para anular." };
+
+    return {
+      responseText: `🗑️ ¿Confirmas la **anulación** de la última venta?\n\n• Producto: *${(lastTx as any).products.name}*\n• Cantidad: ${Math.abs(lastTx.quantity_change)}\n• Total: $${lastTx.total_amount}`,
+      nextStep: 'awaiting_void_confirmation',
+      metadata: { transactionId: lastTx.id, productId: lastTx.product_id, qty: Math.abs(lastTx.quantity_change) }
+    };
+  }
+
+  if (currentStep === 'awaiting_void_confirmation') {
+    if (isPositive(s)) {
+      return {
+        responseText: "✅ *Venta Anulada*. El stock ha sido devuelto.",
+        metadata: { intent: 'PROCESS_VOID', transactionId: metadata.transactionId, productId: metadata.productId, qty: metadata.qty }
+      };
+    }
+    return { responseText: "❌ Anulación cancelada." };
+  }
+
+  // --- FLUJO DE AUDITORÍA ---
+  if (intentResult.intent === 'AUDIT_INVENTORY') {
+    const { data: products } = await supabase.from('products').select('id, name, current_stock').eq('store_id', storeId).order('name', { ascending: true });
+    
+    if (!products || products.length === 0) return { responseText: "❌ No hay productos registrados para auditar." };
+
+    return {
+      responseText: `📝 *Iniciando Auditoría*\n\nTe preguntaré por cada producto. Escribe el número físico que tienes.\n\n1. **${products[0].name}**\n¿Cuántos hay físicamente?`,
+      nextStep: 'awaiting_audit_count',
+      metadata: { products, currentIndex: 0 }
+    };
+  }
+
+  if (currentStep === 'awaiting_audit_count') {
+    const physical = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(physical)) return { responseText: "❌ Envía solo el número físico (ej: 5)." };
+
+    const { products, currentIndex } = metadata;
+    const currentProd = products[currentIndex];
+    
+    // Guardar el ajuste si hay diferencia
+    const diff = physical - currentProd.current_stock;
+    if (diff !== 0) {
+       await supabase.from('transactions').insert({ 
+         store_id: storeId, 
+         product_id: currentProd.id, 
+         type: 'correction', 
+         quantity_change: diff, 
+         notes: 'Auditoría WhatsApp' 
+       });
+       await supabase.rpc('increment_stock', { row_id: currentProd.id, amount: diff });
+    }
+
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < products.length) {
+      return {
+        responseText: `✅ Guardado. Siguiente:\n\n${nextIndex + 1}. **${products[nextIndex].name}**\n¿Cuántos hay físicamente?`,
+        nextStep: 'awaiting_audit_count',
+        metadata: { products, currentIndex: nextIndex }
+      };
+    } else {
+      return { responseText: "🏁 *Auditoría Finalizada*. Todos los stocks han sido sincronizados." };
+    }
   }
 
   return { responseText: "" };
