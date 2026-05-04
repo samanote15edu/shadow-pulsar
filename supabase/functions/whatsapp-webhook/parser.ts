@@ -70,19 +70,36 @@ export async function handleCommand(
     // Normalización básica de plurales (cocas -> coca)
     if (searchTerm.endsWith('s') && searchTerm.length > 3) searchTerm = searchTerm.slice(0, -1);
 
+    // 1. Búsqueda Difusa (Trigramas)
     const { data: fuzzy } = await supabase.rpc('fuzzy_search_products', {
       search_text: searchTerm,
       store_id_param: storeId,
-      similarity_threshold: 0.1
+      similarity_threshold: 0.15 // Bajamos el umbral para ser más permisivos
     });
 
-    if (fuzzy && fuzzy.length > 0) {
-      const best = fuzzy[0];
-      if (best.similarity > 0.4) {
+    let bestMatch = fuzzy && fuzzy.length > 0 ? fuzzy[0] : null;
+
+    // 2. Fallback: Búsqueda ILIKE (Si la difusa no convenció)
+    if (!bestMatch || bestMatch.similarity < 0.3) {
+      const { data: ilikeProds } = await supabase
+        .from('products')
+        .select('id, name')
+        .eq('store_id', storeId)
+        .eq('is_active', true)
+        .ilike('name', `%${searchTerm}%`)
+        .limit(1);
+      
+      if (ilikeProds && ilikeProds.length > 0) {
+        bestMatch = { ...ilikeProds[0], similarity: 0.5 }; // Le damos un score artificial para que dispare la sugerencia
+      }
+    }
+
+    if (bestMatch) {
+      if (bestMatch.similarity > 0.4) {
         return {
-          responseText: `📦 ¿Confirmas resurtido de **${intentResult.qty} ${best.name}**?`,
+          responseText: `📦 ¿Confirmas resurtido de **${intentResult.qty} ${bestMatch.name}**?`,
           nextStep: 'awaiting_similarity_confirmation',
-          metadata: { suggestedId: best.id, suggestedName: best.name, pendingQty: intentResult.qty, newName: intentResult.product }
+          metadata: { suggestedId: bestMatch.id, suggestedName: bestMatch.name, pendingQty: intentResult.qty, newName: intentResult.product }
         };
       }
     }
