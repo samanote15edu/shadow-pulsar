@@ -36,6 +36,7 @@ export function detectIntent(text: string): any {
   if (s.includes('nueva tienda') || s.includes('registrar sucursal')) return { intent: 'CREATE_STORE' };
   if (s === 'link' || s === 'enlace' || s === 'panel') return { intent: 'GET_LINK' };
   if (s === 'inventario' || s === 'stock') return { intent: 'GET_INVENTORY' };
+  if (s === 'ayuda' || s === 'help' || s === 'comandos' || s === '?') return { intent: 'HELP' };
 
   return { intent: 'UNKNOWN' };
 }
@@ -251,6 +252,18 @@ export async function handleCommand(
     if (!prods) return { responseText: "📭 Tu inventario está vacío." };
     const list = prods.map(p => `${p.current_stock <= 0 ? '❌' : '📦'} ${p.name}: *${p.current_stock}*`).join('\n');
     return { responseText: `📊 *Inventario Actual (Top 10):*\n\n${list}\n\nEscribe 'Inventario' para ver todo en el panel.` };
+  }
+
+  if (intentResult.intent === 'HELP') {
+    let msg = `🤖 *Asistente Shadow Pulsar*\n\n`;
+    msg += `Puedes escribirme de forma natural:\n\n`;
+    msg += `🥤 *Ventas:* "Vendí 2 cocas", "2 sabritas", "1 jugo".\n`;
+    msg += `📦 *Surtido:* "Llegaron 10 cocas", "Surtido de 5 jugos".\n`;
+    msg += `📍 *Sucursales:* "Cambiar" (para moverte de tienda).\n`;
+    msg += `📊 *Consultas:* "Inventario", "Link" (panel web).\n`;
+    msg += `✨ *Nuevos:* Si un producto no existe, te guiaré para crearlo.\n\n`;
+    msg += `Escribe *'Salir'* en cualquier momento para cancelar.`;
+    return { responseText: msg };
   }
 
   return { responseText: "" };
