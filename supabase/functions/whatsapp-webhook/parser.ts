@@ -213,45 +213,41 @@ export async function handleCommand(
   // 1. DETECCIÓN DE INTENCIÓN (V2)
   const intentResult = detectIntent(text);
   
-  // DEBUG FORCE: Responder siempre si detectamos ALGO
-  if (intentResult.intent !== 'UNKNOWN') {
-    const debugMsg = `🧪 [DEBUG V2]\nIntent: ${intentResult.intent}\nProd: ${intentResult.entities.product}\nQty: ${intentResult.entities.qty}\nConf: ${intentResult.confidence}`;
-    return { responseText: debugMsg }; 
-  }
-
-  // 2. RUTAS DE COMANDOS MANUALES (Mantener compatibilidad)
-  if (s === '/start' || s === 'hola' || s === 'menu' || s === 'menú') {
-    return {
-      responseText: `👋 ¡Hola ${senderName}! Soy tu asistente de inventario de Shadow Pulsar.\n\nPuedes decirme cosas como:\n• "Vendí 2 cocas"\n• "Llegaron 10 gansitos"\n• "¿Cuánto me debe Juan?"\n• "Inventario"\n\n¿En qué te ayudo hoy?`
-    };
-  }
-
   // 3. PROCESAR INTENCIONES DETECTADAS
   if (intentResult.intent === 'RESTOCK' && intentResult.entities.product) {
-    // Intentar buscar el producto de forma difusa (usando la nueva función SQL)
+    // Normalización: Quitar plural simple para mejorar búsqueda (cocas -> coca)
+    let searchTerm = intentResult.entities.product.toLowerCase().trim();
+    if (searchTerm.length > 3 && searchTerm.endsWith('s')) {
+      searchTerm = searchTerm.slice(0, -1);
+    }
+
+    // Intentar buscar el producto de forma difusa
     const { data: fuzzyProds } = await supabase.rpc('fuzzy_search_products', {
-      search_text: intentResult.entities.product,
+      search_text: searchTerm,
       store_id_param: storeId,
-      similarity_threshold: 0.3
+      similarity_threshold: 0.2 // Más permisivo
     });
 
     if (fuzzyProds && fuzzyProds.length > 0) {
       const bestMatch = fuzzyProds[0];
       const qty = intentResult.entities.qty || 1;
 
-      // Si la confianza es alta (>0.6), pedir confirmación
-      if (bestMatch.similarity > 0.6) {
-        return {
-          responseText: `📦 Entendido. Detecté que quieres **resurtir ${qty} unidades** de **${bestMatch.name}**.\n\n¿Es correcto?`,
-          nextStep: 'awaiting_restock_qty_guided', // Reutilizaremos un estado existente para confirmar
-          metadata: {
-            productId: bestMatch.id,
-            productName: bestMatch.name,
-            qty: qty,
-            intent: 'RESTOCK'
-          }
-        };
-      }
+      // Si encontramos algo razonable (>0.2), pedir confirmación
+      return {
+        responseText: `📦 Entendido. Detecté que quieres **resurtir ${qty} unidades** de **${bestMatch.name}**.\n\n¿Es correcto?`,
+        nextStep: 'awaiting_restock_qty_guided', 
+        metadata: {
+          productId: bestMatch.id,
+          productName: bestMatch.name,
+          qty: qty,
+          intent: 'RESTOCK'
+        }
+      };
+    } else {
+      // Si no encuentra el producto, podemos preguntar o fallar elegantemente
+      return {
+        responseText: `🔍 No encontré ningún producto parecido a "${intentResult.entities.product}" en tu inventario.\n\n¿Quieres registrarlo como un producto nuevo o intentar con otro nombre?`
+      };
     }
   }
 
