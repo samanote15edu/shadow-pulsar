@@ -54,9 +54,15 @@ export async function handleCommand(
   }
 
   // 1. MANEJAR RESPUESTAS A PREGUNTAS (ESTADOS)
-  if (currentStep === 'awaiting_similarity_confirmation') {
+  if (currentStep === 'awaiting_similarity_confirmation' || currentStep === 'awaiting_sale_confirmation') {
     const isPositive = ['si', 'sí', 's', 'yes', 'va', 'dale'].includes(s);
     if (isPositive) {
+      if (currentStep === 'awaiting_sale_confirmation') {
+        return {
+          responseText: `✅ Venta registrada de **${metadata.qty} ${metadata.productName}**. Total: $${metadata.total}`,
+          metadata: { intent: 'SALE', productId: metadata.productId, qty: metadata.qty, total: metadata.total }
+        };
+      }
       return {
         responseText: `✅ ¡Listo! Registré **${metadata.pendingQty} ${metadata.suggestedName}** en el inventario.`,
         metadata: { intent: 'RESTOCK', productId: metadata.suggestedId, qty: metadata.pendingQty }
@@ -107,51 +113,69 @@ export async function handleCommand(
   const intentResult = detectIntent(text);
   console.log(`[DEBUG] Intent: ${intentResult.intent} | Product: "${intentResult.product}"`);
 
+  // --- FLUJO DE RESURTIDO (RESTOCK) ---
   if (intentResult.intent === 'RESTOCK' && intentResult.product) {
     let searchTerm = intentResult.product;
-    // Normalización básica de plurales (cocas -> coca)
     if (searchTerm.endsWith('s') && searchTerm.length > 3) searchTerm = searchTerm.slice(0, -1);
 
     // 1. Búsqueda Difusa (Trigramas)
     const { data: fuzzy } = await supabase.rpc('fuzzy_search_products', {
       search_text: searchTerm,
       store_id_param: storeId,
-      similarity_threshold: 0.15 // Bajamos el umbral para ser más permisivos
+      similarity_threshold: 0.15
     });
 
     let bestMatch = fuzzy && fuzzy.length > 0 ? fuzzy[0] : null;
 
-    // 2. Fallback: Búsqueda ILIKE (Si la difusa no convenció)
+    // 2. Fallback: Búsqueda ILIKE
     if (!bestMatch || bestMatch.similarity < 0.3) {
-      const { data: ilikeProds } = await supabase
-        .from('products')
-        .select('id, name')
-        .eq('store_id', storeId)
-        .eq('is_active', true)
-        .ilike('name', `%${searchTerm}%`)
-        .limit(1);
-      
-      if (ilikeProds && ilikeProds.length > 0) {
-        bestMatch = { ...ilikeProds[0], similarity: 0.5 }; // Le damos un score artificial para que dispare la sugerencia
-      }
+      const { data: ilikeProds } = await supabase.from('products').select('id, name').eq('store_id', storeId).eq('is_active', true).ilike('name', `%${searchTerm}%`).limit(1);
+      if (ilikeProds && ilikeProds.length > 0) bestMatch = { ...ilikeProds[0], similarity: 0.5 };
     }
 
-    if (bestMatch) {
-      if (bestMatch.similarity > 0.4) {
-        return {
-          responseText: `📦 ¿Confirmas resurtido de **${intentResult.qty} ${bestMatch.name}**?`,
-          nextStep: 'awaiting_similarity_confirmation',
-          metadata: { suggestedId: bestMatch.id, suggestedName: bestMatch.name, pendingQty: intentResult.qty, newName: intentResult.product }
-        };
-      }
+    if (bestMatch && bestMatch.similarity > 0.4) {
+      return {
+        responseText: `📦 ¿Confirmas resurtido de **${intentResult.qty} ${bestMatch.name}**?`,
+        nextStep: 'awaiting_similarity_confirmation',
+        metadata: { suggestedId: bestMatch.id, suggestedName: bestMatch.name, pendingQty: intentResult.qty, newName: intentResult.product }
+      };
     }
 
-    // Si no hay match, ofrecer crear nuevo
     return {
       responseText: `🔍 No encontré "${intentResult.product}" en tu inventario.\n\n¿Quieres registrarlo como **producto nuevo**?`,
-      nextStep: 'awaiting_similarity_confirmation', // Reusamos el estado para SI/NO
+      nextStep: 'awaiting_similarity_confirmation',
       metadata: { newName: intentResult.product, pendingQty: intentResult.qty, isNew: true }
     };
+  }
+
+  // --- FLUJO DE VENTA (SALE) ---
+  if (intentResult.intent === 'SALE' && intentResult.product) {
+    let searchTerm = intentResult.product;
+    if (searchTerm.endsWith('s') && searchTerm.length > 3) searchTerm = searchTerm.slice(0, -1);
+
+    // Búsqueda
+    const { data: fuzzy } = await supabase.rpc('fuzzy_search_products', {
+      search_text: searchTerm,
+      store_id_param: storeId,
+      similarity_threshold: 0.15
+    });
+
+    let bestMatch = fuzzy && fuzzy.length > 0 ? fuzzy[0] : null;
+    if (!bestMatch) {
+      const { data: ilikeProds } = await supabase.from('products').select('id, name, base_price').eq('store_id', storeId).eq('is_active', true).ilike('name', `%${searchTerm}%`).limit(1);
+      if (ilikeProds && ilikeProds.length > 0) bestMatch = { ...ilikeProds[0], similarity: 0.5 };
+    }
+
+    if (bestMatch && bestMatch.similarity > 0.3) {
+      const total = intentResult.qty * (bestMatch.base_price || 0);
+      return {
+        responseText: `🥤 ¿Confirmas venta de **${intentResult.qty} ${bestMatch.name}**?\n\nTOTAL: *$${total}*`,
+        nextStep: 'awaiting_sale_confirmation',
+        metadata: { productId: bestMatch.id, productName: bestMatch.name, qty: intentResult.qty, price: bestMatch.base_price, total }
+      };
+    }
+
+    return { responseText: `🔍 No encontré el producto "${intentResult.product}" para venderlo.` };
   }
 
   return { responseText: "" };

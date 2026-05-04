@@ -139,6 +139,18 @@ serve(async (req) => {
         }
       }
 
+      if (!convRes.nextStep && meta?.intent === 'SALE') {
+        await supabase.rpc('increment_stock', { row_id: meta.productId, amount: -meta.qty });
+        await supabase.from('transactions').insert({ 
+          store_id: profile.store_id, 
+          product_id: meta.productId, 
+          type: 'sale', 
+          quantity_change: -meta.qty, 
+          total_amount: meta.total,
+          amount_received: meta.total // Asumimos pago completo por ahora
+        });
+      }
+
       if (convRes.nextStep) {
         await supabase.from('registration_states').upsert({ 
           whatsapp_number: from, 
