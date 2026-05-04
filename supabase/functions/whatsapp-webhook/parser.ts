@@ -207,173 +207,131 @@ export async function handleCommand(
   storeId: string, 
   supabase: SupabaseClient,
   senderName: string = 'Cliente',
-  convState: any = null // Estado de la conversación (memoria)
+  convState: any = null
 ): Promise<CommandResponse> {
-  const s = text.toLowerCase().trim();
-  const currentStep = convState?.current_step;
-  const metadata = convState?.metadata;
+  try {
+    const s = text.toLowerCase().trim();
+    const currentStep = convState?.step; // Nota: en index.ts se usa 'step'
+    const metadata = convState?.metadata || {};
 
-  // 1. DETECCIÓN DE INTENCIÓN (V2)
-  const intentResult = detectIntent(text);
-  
-  // 3. PROCESAR INTENCIONES DETECTADAS
-  if (intentResult.intent === 'RESTOCK' && intentResult.entities.product) {
-    // Normalización: Quitar plural simple para mejorar búsqueda (cocas -> coca)
-    let searchTerm = intentResult.entities.product.toLowerCase().trim();
-    if (searchTerm.length > 3 && searchTerm.endsWith('s')) {
-      searchTerm = searchTerm.slice(0, -1);
+    console.log(`[DEBUG] Step: ${currentStep}, Msg: ${s}`);
+
+    // --- 1. MANEJAR SALIDA FORZADA ---
+    if (s === 'salir' || s === 'cancelar' || s === 'no') {
+      return { responseText: "Entendido. Operación cancelada. ¿En qué más puedo ayudarte?" };
     }
 
-    // Intentar buscar el producto de forma difusa
-    const { data: fuzzyProds } = await supabase.rpc('fuzzy_search_products', {
-      search_text: searchTerm,
-      store_id_param: storeId,
-      similarity_threshold: 0.15 
-    });
-
-    if (fuzzyProds && fuzzyProds.length > 0) {
-      const bestMatch = fuzzyProds[0];
-      const qty = intentResult.entities.qty || 1;
-
-      // ESCENARIO A: Coincidencia ALTA (>0.5) -> Confirmación Directa
-      if (bestMatch.similarity > 0.5) {
+    // --- 2. MANEJAR RESPUESTAS A PREGUNTAS (ESTADOS) ---
+    if (currentStep === 'awaiting_similarity_confirmation') {
+      const isPositive = ['si', 'sí', 'va', 'dale', 'yes', 's'].includes(s);
+      if (isPositive) {
         return {
-          responseText: `📦 Entendido. Detecté que quieres **resurtir ${qty} unidades** de **${bestMatch.name}**.\n\n¿Es correcto?`,
-          nextStep: 'awaiting_restock_qty_guided', 
+          responseText: `✅ ¡Perfecto! Registrando **resurtido de ${metadata.pendingQty}** para **${metadata.suggestedName}**.`,
+          nextStep: 'awaiting_restock_qty_guided',
           metadata: {
-            productId: bestMatch.id,
-            productName: bestMatch.name,
-            qty: qty,
+            productId: metadata.suggestedId,
+            productName: metadata.suggestedName,
+            qty: metadata.pendingQty,
             intent: 'RESTOCK'
           }
         };
-      } 
-      
-      // ESCENARIO B: Coincidencia MEDIA (0.15 - 0.5) -> Sugerencia "Did you mean?"
-      else {
+      } else {
         return {
-          responseText: `🔍 No encontré "${intentResult.entities.product}", pero tengo **"${bestMatch.name}"**.\n\n¿Te refieres a ese o es un producto nuevo?`,
-          nextStep: 'awaiting_similarity_confirmation',
-          metadata: {
-            suggestedId: bestMatch.id,
-            suggestedName: bestMatch.name,
-            newName: intentResult.entities.product,
-            pendingQty: qty
-          }
+          responseText: `✨ Entendido. Vamos a registrar **"${metadata.newName}"** como producto nuevo.\n\n¿A qué **precio** lo vas a vender?`,
+          nextStep: 'awaiting_new_product_price',
+          metadata: { newName: metadata.newName, pendingQty: metadata.pendingQty }
         };
       }
-    } else {
-      // ESCENARIO C: Sin coincidencias -> Ofrecer crear nuevo
-      return {
-        responseText: `🔍 No encontré nada parecido a "${intentResult.entities.product}".\n\n¿Quieres registrarlo como un producto nuevo?`,
-        nextStep: 'awaiting_new_product_details',
-        metadata: {
-          newName: intentResult.entities.product,
-          pendingQty: intentResult.entities.qty || 1
-        }
-      };
     }
-  }
 
-  // --- 4. MANEJAR RESPUESTAS A SUGERENCIAS (DID YOU MEAN?) ---
-  if (currentStep === 'awaiting_similarity_confirmation') {
-    const isPositive = ['si', 'sí', 'va', 'dale', 'yes', 's'].includes(s) || s.includes(metadata?.suggestedName?.toLowerCase());
-    
-    if (isPositive) {
-      // El usuario confirmó que era el producto sugerido
+    if (currentStep === 'awaiting_new_product_price') {
+      const price = parseFloat(s.replace(/[^0-9.]/g, ''));
+      if (isNaN(price)) {
+        return { responseText: "❌ Por favor, escribe solo el número del precio (ej: 18).", nextStep: 'awaiting_new_product_price', metadata };
+      }
       return {
-        responseText: `✅ ¡Perfecto! Registrando **resurtido de ${metadata.pendingQty}** para **${metadata.suggestedName}**.`,
-        nextStep: 'awaiting_restock_qty_guided', // Reusar flujo de confirmación de resurtido
-        metadata: {
-          productId: metadata.suggestedId,
-          productName: metadata.suggestedName,
-          qty: metadata.pendingQty,
-          intent: 'RESTOCK'
-        }
-      };
-    } else {
-      // El usuario dice que NO es el sugerido, es uno NUEVO
-      return {
-        responseText: `✨ Entendido. Vamos a registrar **"${metadata.newName}"** como producto nuevo.\n\n¿A qué **precio** lo vas a vender?`,
-        nextStep: 'awaiting_new_product_price',
-        metadata: {
-          newName: metadata.newName,
-          pendingQty: metadata.pendingQty
-        }
-      };
-    }
-  }
-
-  // --- 5. MANEJAR RESPUESTAS A PREGUNTAS GUIADAS (CONVERSATION STATES) ---
-  // Esta lógica se activa cuando el usuario responde a una pregunta del bot
-  if (currentStep === 'awaiting_new_product_details') {
-    const isPositive = ['si', 'sí', 'va', 'dale', 'yes', 's'].includes(s);
-    if (isPositive) {
-      return {
-        responseText: `✨ ¡Excelente! Vamos a registrar **"${metadata?.newName}"**.\n\n¿A qué **precio** lo vas a vender al público? (Ej: 15.50)`,
-        nextStep: 'awaiting_new_product_price',
-        metadata: metadata
-      };
-    } else {
-      return { responseText: "Entendido. Operación cancelada. ¿En qué más puedo ayudarte?" };
-    }
-  }
-
-  if (currentStep === 'awaiting_new_product_price') {
-    const price = parseFloat(s.replace(/[^0-9.]/g, ''));
-    if (isNaN(price)) {
-      return {
-        responseText: "❌ Por favor, escribe solo el número del precio (ej: 18).",
-        nextStep: 'awaiting_new_product_price',
-        metadata: metadata
-      };
-    }
-    return {
-      responseText: `💰 Precio fijado en **$${price}**.\n\n¿Cuál es el **costo** de este producto para ti? (O escribe 0 si no lo sabes)`,
-      nextStep: 'awaiting_product_cost',
-      metadata: { ...metadata, price }
-    };
-  }
-
-  if (currentStep === 'awaiting_product_cost') {
-    const cost = parseFloat(s.replace(/[^0-9.]/g, ''));
-    if (isNaN(cost)) {
-      return {
-        responseText: "❌ Por favor, escribe solo el número del costo.",
+        responseText: `💰 Precio: **$${price}**. ¿Cuál es el **costo**? (O escribe 0)`,
         nextStep: 'awaiting_product_cost',
-        metadata: metadata
+        metadata: { ...metadata, price }
       };
     }
 
-    // --- ¡MOMENTO DE LA VERDAD! CREAR EL PRODUCTO ---
-    const { data: newProd, error } = await supabase.from('products').insert({
-      store_id: storeId,
-      name: metadata.newName,
-      price: metadata.price,
-      cost: cost,
-      current_stock: metadata.pendingQty, // Ya le sumamos lo que llegó
-      min_stock_alert: 5
-    }).select().single();
+    if (currentStep === 'awaiting_product_cost') {
+      const cost = parseFloat(s.replace(/[^0-9.]/g, ''));
+      if (isNaN(cost)) {
+        return { responseText: "❌ Por favor, escribe solo el número del costo.", nextStep: 'awaiting_product_cost', metadata };
+      }
+      
+      // CREAR PRODUCTO
+      const { data: newProd, error } = await supabase.from('products').insert({
+        store_id: storeId,
+        name: metadata.newName,
+        price: metadata.price,
+        cost: cost,
+        current_stock: metadata.pendingQty,
+        min_stock_alert: 5
+      }).select().single();
 
-    if (error) {
-      return { responseText: `❌ Error al crear producto: ${error.message}` };
+      if (error) return { responseText: `❌ Error: ${error.message}` };
+
+      return { responseText: `✅ ¡Creado! **${newProd.name}** con stock de ${metadata.pendingQty}.` };
     }
 
-    // Registrar también el movimiento de inventario para que aparezca en el historial
-    await supabase.from('inventory_movements').insert({
-      store_id: storeId,
-      product_id: newProd.id,
-      quantity_change: metadata.pendingQty,
-      type: 'restock',
-      description: 'Registro inicial de producto nuevo'
-    });
+    // --- 3. DETECTAR NUEVA INTENCIÓN (SI NO HAY ESTADO) ---
+    const intentResult = detectIntent(text);
+    
+    if (intentResult.intent === 'RESTOCK' && intentResult.entities.product) {
+      let searchTerm = intentResult.entities.product.toLowerCase().trim();
+      if (searchTerm.length > 3 && searchTerm.endsWith('s')) searchTerm = searchTerm.slice(0, -1);
 
-    return {
-      responseText: `✅ ¡Producto creado con éxito!\n\n📦 *${newProd.name}*\n💰 Precio: $${newProd.price}\n📥 Stock inicial: ${metadata.pendingQty}\n\n¿Quieres hacer algo más?`
-    };
+      const { data: fuzzyProds } = await supabase.rpc('fuzzy_search_products', {
+        search_text: searchTerm,
+        store_id_param: storeId,
+        similarity_threshold: 0.15
+      });
+
+      if (fuzzyProds && fuzzyProds.length > 0) {
+        const bestMatch = fuzzyProds[0];
+        const qty = intentResult.entities.qty || 1;
+
+        if (bestMatch.similarity > 0.5) {
+          return {
+            responseText: `📦 ¿Confirmas resurtido de **${qty} ${bestMatch.name}**?`,
+            nextStep: 'awaiting_restock_qty_guided',
+            metadata: { productId: bestMatch.id, productName: bestMatch.name, qty, intent: 'RESTOCK' }
+          };
+        } else {
+          return {
+            responseText: `🔍 No encontré "${intentResult.entities.product}", pero tengo **"${bestMatch.name}"**. ¿Es ese o es uno nuevo?`,
+            nextStep: 'awaiting_similarity_confirmation',
+            metadata: { suggestedId: bestMatch.id, suggestedName: bestMatch.name, newName: intentResult.entities.product, pendingQty: qty }
+          };
+        }
+      } else {
+        return {
+          responseText: `🔍 No encontré nada como "${intentResult.entities.product}". ¿Quieres registrarlo como nuevo?`,
+          nextStep: 'awaiting_new_product_details',
+          metadata: { newName: intentResult.entities.product, pendingQty: intentResult.entities.qty || 1 }
+        };
+      }
+    }
+
+    if (currentStep === 'awaiting_new_product_details') {
+       const isPositive = ['si', 'sí', 'va', 'dale', 'yes', 's'].includes(s);
+       if (isPositive) {
+         return {
+           responseText: `✨ Registrando **"${metadata.newName}"**. ¿Precio de venta?`,
+           nextStep: 'awaiting_new_product_price',
+           metadata: metadata
+         };
+       }
+    }
+
+    return { responseText: "" }; // No detectado
+  } catch (err) {
+    console.error("[CRITICAL ERROR]", err);
+    return { responseText: "⚠️ Ups, tuve un problema técnico. Por favor, intenta de nuevo en un momento." };
   }
-
-  return { responseText: "" }; // Fallback si no detecta intención natural clara
 }
 
 export async function executeCommand(
