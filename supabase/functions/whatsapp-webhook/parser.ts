@@ -140,63 +140,65 @@ interface IntentResult {
  */
 function detectIntent(text: string): IntentResult {
   const s = text.toLowerCase().trim();
+  console.log(`[DEBUG] Analyzing text for intent: "${s}"`);
   
-  // 1. Detección de Venta (SALE)
-  // Ej: "una coca", "dame 2 cocas", "2 sabritas", "vendí un pan"
-  const salePatterns = [
-    /^(dame|vende|ponme|una|un|unos|unas|vendi|vendí)\s+/i,
-    /^(\d+)\s+(.+)/i, // Empieza con número: "2 cocas"
-    /^\b(coca|sabritas|pan|leche|huevo)\b/i // Palabras comunes directas
-  ];
+  // Palabras clave por intención
+  const keywords = {
+    restock: ['llegaron', 'llego', 'llegó', 'trajeron', 'trajo', 'resurtir', 'recibi', 'recibí', 'entregan', 'entregaron', 'entro', 'entró', 'compre', 'compré', 'entrada'],
+    sale: ['dame', 'vende', 'vendí', 'vendi', 'ponme', 'una', 'un', 'unos', 'unas', 'venta'],
+    debt: ['debe', 'deuda', 'fiado', 'cuenta', 'cuento', 'cuentan', 'fiados']
+  };
 
-  // 2. Detección de Resurtido (RESTOCK)
-  // Ej: "llegaron 10 cocas", "compré 2 rejas de huevo", "resurtir 5 panes"
-  const restockPatterns = [
-    /^(llegaron|llegó|llego|trajeron|trajo|compre|compré|resurtir|recibi|recibí|entregan|entregaron|entro|entró)\s+/i,
-    /resurtir/i,
-    /entrada/i
-  ];
+  // 1. Detección de Resurtido (RESTOCK)
+  if (keywords.restock.some(k => s.includes(k))) {
+    console.log("[DEBUG] Restock keyword found");
+    const qtyMatch = s.match(/(\d+)/);
+    // Extraer producto quitando la palabra de acción y la cantidad
+    let product = s;
+    keywords.restock.forEach(k => product = product.replace(k, ''));
+    if (qtyMatch) product = product.replace(qtyMatch[0], '');
+    product = product.replace(/\b(de|un|una|unos|unas|la|el)\b/g, '').trim();
 
-  // 3. Detección de Deuda (DEBT_QUERY)
-  // Ej: "¿cuánto me debe juan?", "deuda de maria", "fiados"
-  const debtPatterns = [
-    /cuanto\s+(me\s+)?debe/i,
-    /deuda/i,
-    /fiado/i,
-    /cuent(a|as)/i
-  ];
-
-  // Lógica de Clasificación
-  if (restockPatterns.some(p => p.test(s))) {
-    // Extraer entidades para restock
-    const match = s.match(/(?:llegaron|compré|resurtir|recibí)\s+(?:de\s+)?(\d+)?\s*(.+)/i);
     return {
       intent: 'RESTOCK',
-      confidence: 0.8,
+      confidence: 0.9,
       entities: {
-        qty: match?.[1] ? parseFloat(match[1]) : undefined,
-        product: match?.[2]?.trim()
+        qty: qtyMatch ? parseFloat(qtyMatch[1]) : undefined,
+        product: product
       }
     };
   }
 
-  if (debtPatterns.some(p => p.test(s))) {
+  // 2. Detección de Deuda (DEBT_QUERY)
+  if (keywords.debt.some(k => s.includes(k))) {
+    console.log("[DEBUG] Debt keyword found");
     return { intent: 'DEBT_QUERY', confidence: 0.8, entities: {} };
   }
 
-  if (salePatterns.some(p => p.test(s))) {
-    // Extraer entidades para venta
-    const match = s.match(/^(?:dame|vende|vendí)?\s*(\d+)?\s*(.+)/i);
+  // 3. Detección de Venta (SALE)
+  // Si no es nada de lo anterior y tiene un número + palabra, o palabras de venta
+  const hasNumber = /\d+/.test(s);
+  const hasSaleKeyword = keywords.sale.some(k => s.startsWith(k));
+  
+  if (hasSaleKeyword || hasNumber) {
+    console.log("[DEBUG] Sale pattern detected");
+    const qtyMatch = s.match(/(\d+)/);
+    let product = s;
+    keywords.sale.forEach(k => product = product.replace(k, ''));
+    if (qtyMatch) product = product.replace(qtyMatch[0], '');
+    product = product.replace(/\b(de|un|una|unos|unas|la|el)\b/g, '').trim();
+
     return {
       intent: 'SALE',
       confidence: 0.7,
       entities: {
-        qty: match?.[1] ? parseFloat(match[1]) : 1,
-        product: match?.[2]?.trim()
+        qty: qtyMatch ? parseFloat(qtyMatch[1]) : 1,
+        product: product
       }
     };
   }
 
+  console.log("[DEBUG] No intent detected");
   return { intent: 'UNKNOWN', confidence: 0, entities: {} };
 }
 
