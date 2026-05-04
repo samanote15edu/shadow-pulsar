@@ -8,7 +8,7 @@ const WHATSAPP_ACCESS_TOKEN = Deno.env.get('WHATSAPP_ACCESS_TOKEN');
 const WHATSAPP_PHONE_ID = Deno.env.get('WHATSAPP_PHONE_ID');
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-import { executeCommand, generateVisualReceipt, type FiadoItem } from './parser.ts';
+import { handleCommand, executeCommand, generateVisualReceipt, type FiadoItem } from './parser.ts';
 
 // --- CONFIGURACIÓN ENVÍO ---
 async function sendWhatsAppMessage(to: string, text: string) {
