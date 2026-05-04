@@ -151,6 +151,22 @@ serve(async (req) => {
         });
       }
 
+      if (!convRes.nextStep && meta?.intent === 'UPDATE_PROFILE_STORE') {
+        await supabase.from('profiles').update({ store_id: meta.storeId }).eq('whatsapp_number', from);
+      }
+
+      if (!convRes.nextStep && meta?.intent === 'CREATE_NEW_BRANCH') {
+        const { data: newStore } = await supabase.from('stores').insert({
+          name: meta.name,
+          owner_id: profile.id,
+          logo_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(meta.name)}`
+        }).select().single();
+        if (newStore) {
+          // Cambiar automáticamente a la nueva tienda
+          await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', profile.id);
+        }
+      }
+
       if (convRes.nextStep) {
         await supabase.from('registration_states').upsert({ 
           whatsapp_number: from, 

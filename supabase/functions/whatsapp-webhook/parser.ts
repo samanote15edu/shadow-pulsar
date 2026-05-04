@@ -28,6 +28,12 @@ export function detectIntent(text: string): any {
     return { intent: 'SALE', qty, product };
   }
 
+  // Comandos Administrativos
+  if (s === 'cambiar' || s === 'sucursal' || s === 'tienda') return { intent: 'SWITCH_STORE' };
+  if (s.includes('nueva tienda') || s.includes('registrar sucursal')) return { intent: 'CREATE_STORE' };
+  if (s === 'link' || s === 'enlace' || s === 'panel') return { intent: 'GET_LINK' };
+  if (s === 'inventario' || s === 'stock') return { intent: 'GET_INVENTORY' };
+
   return { intent: 'UNKNOWN' };
 }
 
@@ -92,21 +98,42 @@ export async function handleCommand(
   // 1.2 Capturar Costo y Finalizar (Nuevo Producto)
   if (currentStep === 'awaiting_new_product_cost') {
     const cost = parseFloat(s.replace(/[^0-9.]/g, ''));
-    if (isNaN(cost)) {
-      return { responseText: "❌ Por favor envía solo el número del costo (ej: 18)." };
-    }
-
-    // Aquí index.ts se encargará de insertar en la DB basándose en esta respuesta
+    if (isNaN(cost)) return { responseText: "❌ Por favor envía solo el número del costo (ej: 18)." };
     return {
       responseText: `✅ *¡Producto Registrado!* ✨\n\nNombre: ${metadata.newName}\nStock inicial: +${metadata.pendingQty}\nPrecio: $${metadata.price}\nCosto: $${cost}`,
-      metadata: { 
-        intent: 'CREATE_PRODUCT', 
-        name: metadata.newName, 
-        price: metadata.price, 
-        cost: cost, 
-        qty: metadata.pendingQty 
-      }
+      metadata: { intent: 'CREATE_PRODUCT', name: metadata.newName, price: metadata.price, cost: cost, qty: metadata.pendingQty }
     };
+  }
+
+  // 1.3 Cambiar de Tienda
+  if (currentStep === 'awaiting_store_switch') {
+    const { data: stores } = await supabase.from('stores').select('id, name').ilike('name', `%${s}%`);
+    if (stores && stores.length > 0) {
+      return {
+        responseText: `📍 Sucursal cambiada a **${stores[0].name}**.`,
+        metadata: { intent: 'UPDATE_PROFILE_STORE', storeId: stores[0].id }
+      };
+    }
+    return { responseText: "❌ No encontré esa tienda. Escribe el nombre exacto o 'Salir'." };
+  }
+
+  // 1.4 Crear Nueva Tienda
+  if (currentStep === 'awaiting_new_store_name') {
+    return {
+      responseText: `✨ ¿Confirmas la creación de la tienda **"${text}"**?`,
+      nextStep: 'awaiting_new_store_confirmation',
+      metadata: { newStoreName: text }
+    };
+  }
+
+  if (currentStep === 'awaiting_new_store_confirmation') {
+    if (['si', 'sí', 's', 'yes'].includes(s)) {
+      return {
+        responseText: `✅ Tienda **"${metadata.newStoreName}"** creada con éxito.`,
+        metadata: { intent: 'CREATE_NEW_BRANCH', name: metadata.newStoreName }
+      };
+    }
+    return { responseText: "Cancelado.", metadata: {} };
   }
 
   // 2. DETECTAR NUEVA INTENCIÓN
@@ -176,6 +203,36 @@ export async function handleCommand(
     }
 
     return { responseText: `🔍 No encontré el producto "${intentResult.product}" para venderlo.` };
+  }
+
+  // --- COMANDOS ADMINISTRATIVOS ---
+  if (intentResult.intent === 'SWITCH_STORE') {
+    const { data: stores } = await supabase.from('stores').select('id, name').eq('owner_id', (await supabase.from('profiles').select('id').eq('store_id', storeId).maybeSingle()).data?.id);
+    if (!stores || stores.length <= 1) return { responseText: "📍 Solo tienes una tienda registrada." };
+    
+    return {
+      responseText: "📍 *Cambiar de Sucursal*\n\nEscribe el nombre de la tienda a la que quieres cambiar:\n\n" + stores.map(s => `• ${s.name}`).join('\n'),
+      nextStep: 'awaiting_store_switch'
+    };
+  }
+
+  if (intentResult.intent === 'GET_LINK') {
+    const { data: user } = await supabase.from('profiles').select('id').eq('store_id', storeId).maybeSingle();
+    return { responseText: `🔗 *Tu Panel de Control:*\n\nhttps://shadow-pulsar.vercel.app/?s=${storeId}&u=${user?.id}` };
+  }
+
+  if (intentResult.intent === 'CREATE_STORE') {
+    return {
+      responseText: "✨ *Nueva Sucursal*\n\n¿Cómo se llamará la nueva tienda?",
+      nextStep: 'awaiting_new_store_name'
+    };
+  }
+
+  if (intentResult.intent === 'GET_INVENTORY') {
+    const { data: prods } = await supabase.from('products').select('name, current_stock').eq('store_id', storeId).eq('is_active', true).order('current_stock', { ascending: true }).limit(10);
+    if (!prods) return { responseText: "📭 Tu inventario está vacío." };
+    const list = prods.map(p => `${p.current_stock <= 0 ? '❌' : '📦'} ${p.name}: *${p.current_stock}*`).join('\n');
+    return { responseText: `📊 *Inventario Actual (Top 10):*\n\n${list}\n\nEscribe 'Inventario' para ver todo en el panel.` };
   }
 
   return { responseText: "" };
