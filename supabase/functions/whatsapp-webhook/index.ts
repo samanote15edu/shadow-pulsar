@@ -63,7 +63,7 @@ serve(async (req) => {
         const meta = convRes.metadata;
 
         // EJECUCIONES EN DB
-        if (!convRes.nextStep && meta?.intent === 'CREATE_NEW_BRANCH') {
+        if (meta?.intent === 'CREATE_NEW_BRANCH') {
           // Hardcode de seguridad para el usuario principal
           const ownerId = (from === '5215513531114') ? 'cc04e6ce-7abf-4926-a3aa-f15166422e32' : profile?.id;
           
@@ -77,8 +77,8 @@ serve(async (req) => {
              await sendWhatsAppMessage(from, `❌ Error DB: ${storeError.message}`);
           } else if (newStore) {
              await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', profile.id);
-             // No enviamos un mensaje de éxito extra aquí si el parser ya manda uno. Pero el parser espera que sí, así que:
-             await sendWhatsAppMessage(from, `✅ ¡Sucursal *"${newStore.name}"* registrada y vinculada!`);
+             // Enviamos el mensaje de éxito y la invitación a añadir el primer producto
+             await sendWhatsAppMessage(from, `✅ ¡Sucursal *"${newStore.name}"* registrada!\n\n¿Te gustaría dar de alta tu primer producto? 📦`);
           }
         }
 
