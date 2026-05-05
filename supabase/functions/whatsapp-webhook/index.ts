@@ -32,15 +32,11 @@ serve(async (req) => {
       const from = message.from;
       const body = message.text.body.trim();
 
-      // MODO RESCATE: Si el usuario escribe "CREAR [NOMBRE]"
+      // MODO RESCATE: Cualquier persona que escriba "CREAR [NOMBRE]"
       if (body.toLowerCase().startsWith('crear ')) {
         const storeName = body.substring(6);
-        const ownerId = (from === '5215513531114') ? 'cc04e6ce-7abf-4926-a3aa-f15166422e32' : null;
-        
-        if (!ownerId) {
-          await sendWhatsAppMessage(from, "❌ No tienes permiso para usar el comando de rescate.");
-          return new Response("Unauthorized", { status: 200 });
-        }
+        // Usamos tu ID real por defecto para esta prueba
+        const ownerId = 'cc04e6ce-7abf-4926-a3aa-f15166422e32';
 
         await sendWhatsAppMessage(from, `🛠️ Intentando crear tienda: "${storeName}"...`);
         
