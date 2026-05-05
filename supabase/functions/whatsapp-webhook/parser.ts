@@ -19,6 +19,11 @@ export function detectIntent(text: string): any {
   if (s.includes('anular') || s.includes('borrar venta')) return { intent: 'VOID_SALE' };
   if (s === 'auditoria' || s === 'revisar stock') return { intent: 'AUDIT_INVENTORY' };
 
+  if (s.includes('vincular')) {
+    const storeName = s.replace('vincular', '').trim();
+    return { intent: 'LINK_OWNER', storeName };
+  }
+
   // 2. Abonos
   if (s.includes('abono') || s.includes('pago')) {
     const qtyMatch = s.match(/(\d+)/);
@@ -498,6 +503,30 @@ export async function handleCommand(
     } else {
       return { responseText: "🏁 *Auditoría Finalizada*. Todos los stocks han sido sincronizados." };
     }
+  }
+
+  // --- FLUJO DE VINCULACIÓN ---
+  if (intentResult.intent === 'LINK_OWNER') {
+    const { data: store } = await supabase.from('stores').select('id, name').ilike('name', `%${intentResult.storeName}%`).maybeSingle();
+    if (!store) return { responseText: `🔍 No encontré ninguna tienda que se llame "${intentResult.storeName}".` };
+    
+    return {
+      responseText: `🔗 ¿Confirmas que eres el dueño de **${store.name}** y quieres vincularla a tu panel?`,
+      nextStep: 'awaiting_link_confirmation',
+      metadata: { storeId: store.id, storeName: store.name }
+    };
+  }
+
+  if (currentStep === 'awaiting_link_confirmation') {
+    if (isPositive(s)) {
+      const { data: profile } = await supabase.from('profiles').select('id').eq('whatsapp_number', senderName.replace(/\D/g, '')).maybeSingle();
+      if (profile) {
+        await supabase.from('stores').update({ owner_id: profile.id }).eq('id', metadata.storeId);
+        return { responseText: `✅ ¡Vinculación exitosa! Refresca el panel para ver **${metadata.storeName}**.` };
+      }
+      return { responseText: "❌ No pude encontrar tu perfil de usuario." };
+    }
+    return { responseText: "❌ Vinculación cancelada." };
   }
 
   return { responseText: "" };
