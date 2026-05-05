@@ -38,6 +38,13 @@ serve(async (req) => {
       const body = message.text.body;
 
       // Comando de RESCATE de una sola palabra para probar conexión
+      // Comando secreto de RESET
+      if (body.toLowerCase() === 'reset') {
+        await supabase.from('profiles').update({ onboarding_step: null, onboarding_metadata: {} }).eq('whatsapp_number', from);
+        await sendWhatsAppMessage(from, "🔄 Estado reseteado. Puedes empezar de nuevo con 'nueva tienda'.");
+        return new Response("OK", { status: 200 });
+      }
+
       if (body.toLowerCase() === 'test') {
         await sendWhatsAppMessage(from, "🚀 Conexión establecida. El sistema está vivo.");
         return new Response("OK", { status: 200 });
