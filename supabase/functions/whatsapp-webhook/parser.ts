@@ -226,8 +226,30 @@ export async function handleCommand(
     if (isNaN(cost)) return { responseText: Templates.Global.invalidNumber };
     return {
       responseText: Templates.Onboarding.productRegisteredSuccess(metadata.newName, metadata.pendingQty, metadata.price, cost),
+      nextStep: 'awaiting_post_creation_action',
       metadata: { intent: 'CREATE_PRODUCT', name: metadata.newName, price: metadata.price, cost: cost, qty: metadata.pendingQty }
     };
+  }
+
+  // 1.2.1 Acción Post-Creación
+  if (currentStep === 'awaiting_post_creation_action') {
+    if (s.includes('venta') || s.includes('registrar venta')) {
+      return { responseText: Templates.Onboarding.postCreationSalePrompt };
+    }
+    if (s.includes('inventario') || s.includes('ver inventario')) {
+      const { data: prods } = await supabase.from('products').select('name, current_stock').eq('store_id', storeId).eq('is_active', true).order('current_stock', { ascending: true }).limit(10);
+      if (!prods) return { responseText: Templates.Inventory.emptyInventory };
+      const list = prods.map(p => `${p.current_stock <= 0 ? '❌' : '📦'} ${p.name}: *${p.current_stock}*`).join('\n');
+      return { responseText: Templates.Inventory.inventoryList(list) };
+    }
+    if (s.includes('agregar') || s.includes('otro producto')) {
+      return {
+        responseText: Templates.Onboarding.firstProductPrompt,
+        nextStep: 'awaiting_first_product_name'
+      };
+    }
+    // Fallback if they write something else
+    return { responseText: Templates.Global.unrecognized };
   }
 
   // 1.3 Cambiar de Tienda

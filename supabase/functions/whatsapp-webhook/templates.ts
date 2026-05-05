@@ -21,7 +21,8 @@ export const Templates = {
     firstProductQtyPrompt: (name: string) => `📦 ¿Cuántas unidades de **"${name}"** tienes ahora mismo?`,
     newProductPricePrompt: "💰 ¡Bien! ¿A qué **precio de venta** lo vas a dar?",
     newProductCostPrompt: "💰 ¿Y cuánto te **costó** cada unidad?",
-    productRegisteredSuccess: (name: string, qty: number, price: number, cost: number) => `✅ *¡Producto Registrado!* ✨\n\nNombre: ${name}\nStock inicial: +${qty}\nPrecio: $${price}\nCosto: $${cost}`
+    productRegisteredSuccess: (name: string, qty: number, price: number, cost: number) => `✅ *¡Producto Registrado!* ✨\n\nNombre: ${name}\nStock inicial: +${qty}\nPrecio: $${price}\nCosto: $${cost}\n\n¿Qué quieres hacer ahora?\n• Registrar venta\n• Ver inventario\n• Agregar otro producto`,
+    postCreationSalePrompt: "✍️ ¡Excelente! Escribe tu venta de forma natural. Ejemplo: *'Vendí 2 cocas'* o *'1 sabritas'*."
   },
 
   Inventory: {
