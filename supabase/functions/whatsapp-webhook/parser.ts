@@ -179,6 +179,11 @@ export async function handleCommand(
 
   // 1.0 Flujo de Primer Producto
   if (currentStep === 'awaiting_first_product_choice') {
+    if (isNegative(s)) {
+      return { 
+        responseText: "👍 ¡No hay problema! Puedes dar de alta productos en el futuro. Ejemplo: *'Surtido'*, *'Llegaron 10 cocas'*, o *'Surtido de 5 jugos'*.\n\n¿En qué más te ayudo?" 
+      };
+    }
     return {
       responseText: "✍️ ¡Excelente! ¿Cuál es el **nombre** del producto?\n\n_(Ej: Coca Cola 600ml)_",
       nextStep: 'awaiting_first_product_name'
