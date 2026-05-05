@@ -199,14 +199,17 @@ serve(async (req) => {
       }
 
       if (!convRes.nextStep && meta?.intent === 'CREATE_NEW_BRANCH') {
+        // HARDCODE FIX: Ensure your specific WhatsApp number always uses your real Owner ID
+        const finalOwnerId = (from === '5215513531114') ? 'cc04e6ce-7abf-4926-a3aa-f15166422e32' : profile.id;
+        
         const { data: newStore } = await supabase.from('stores').insert({
           name: meta.name,
-          owner_id: profile.id,
+          owner_id: finalOwnerId,
           logo_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(meta.name)}`
         }).select().single();
         if (newStore) {
           // Cambiar automáticamente a la nueva tienda
-          await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', profile.id);
+          await supabase.from('profiles').update({ store_id: newStore.id }).eq('whatsapp_number', from);
         }
       }
 
