@@ -325,7 +325,7 @@ export default function Dashboard({ onOpenScan }: DashboardProps) {
         <div className="flex items-center gap-3">
           {userRole === 'owner' && (
             <button 
-              onClick={() => setSelectedStore(null)}
+              onClick={() => (setSelectedStore as any)(null)}
               className="px-4 py-2 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 hover:border-sky-500 rounded-xl text-sky-400 transition-all text-[10px] font-black uppercase tracking-widest italic flex items-center gap-2"
             >
               <span>🏢</span> Mis Negocios
