@@ -8,7 +8,8 @@ export const Templates = {
     invalidNumber: "❌ Por favor envía solo el número (ej: 25).",
     invalidNumberAmount: "❌ Envía solo el monto numérico (ej: 10).",
     help: `🤖 *Asistente Shadow Pulsar*\n\nPuedes escribirme de forma natural:\n\n🥤 *Ventas:* "Vendí 2 cocas", "2 sabritas", "1 jugo".\n📦 *Surtido:* "Llegaron 10 cocas", "Surtido de 5 jugos".\n📍 *Sucursales:* "Cambiar" (para moverte de tienda).\n📊 *Consultas:* "Inventario", "Link" (panel web).\n✨ *Nuevos:* Si un producto no existe, te guiaré para crearlo.\n\nEscribe *'Salir'* en cualquier momento para cancelar.`,
-    dashboardLink: (storeId: string, userId: string) => `🔗 *Tu Panel de Control:*\n\nhttps://shadow-pulsar.vercel.app/?s=${storeId}&u=${userId}`
+    dashboardLink: (storeId: string, userId: string) => `🔗 *Tu Panel de Control:*\n\nhttps://shadow-pulsar.vercel.app/?s=${storeId}&u=${userId}`,
+    greeting: "👋 ¡Hola! Soy tu asistente de Shadow Pulsar. ¿Qué necesitas registrar hoy?\n\n💡 _Tip: Escribe *'Ayuda'* si no sabes por dónde empezar._"
   },
   
   Onboarding: {

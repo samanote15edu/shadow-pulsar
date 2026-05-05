@@ -11,6 +11,7 @@ export function detectIntent(text: string): any {
   const s = text.toLowerCase().trim();
 
   // 1. Comandos Administrativos (Prioridad Máxima)
+  if (['hola', 'hi', 'buenas', 'buenos dias', 'buenas tardes', 'buen dia', 'buenas noches', 'hello'].includes(s)) return { intent: 'GREETING' };
   if (s === 'inventario' || s === 'stock') return { intent: 'GET_INVENTORY' };
   if (s === 'ayuda' || s === 'help' || s === 'comandos' || s === '?') return { intent: 'HELP' };
   if (s === 'link' || s === 'enlace' || s === 'panel') return { intent: 'GET_LINK' };
@@ -381,6 +382,10 @@ export async function handleCommand(
 
   if (intentResult.intent === 'HELP') {
     return { responseText: Templates.Global.help };
+  }
+
+  if (intentResult.intent === 'GREETING') {
+    return { responseText: Templates.Global.greeting };
   }
 
   // --- FLUJO DE ABONOS ---
