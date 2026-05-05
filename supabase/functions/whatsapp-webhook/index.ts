@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7"
-import { handleCommand } from './parser.ts';
+import { handleCommand, executeCommand } from './parser.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -10,14 +10,11 @@ const WHATSAPP_ACCESS_TOKEN = Deno.env.get('WHATSAPP_ACCESS_TOKEN');
 const WHATSAPP_PHONE_ID = Deno.env.get('WHATSAPP_PHONE_ID');
 
 async function sendWhatsAppMessage(to: string, text: string) {
-  console.log(`Sending to ${to}: ${text}`);
-  const response = await fetch(`https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_ID}/messages`, {
+  await fetch(`https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_ID}/messages`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: text } })
   });
-  const resData = await response.json();
-  console.log("FB Response:", JSON.stringify(resData));
 }
 
 serve(async (req) => {
@@ -27,48 +24,83 @@ serve(async (req) => {
       if (url.searchParams.get('hub.verify_token') === 'shadow_pulsar_secret') {
         return new Response(url.searchParams.get('hub.challenge'));
       }
-      return new Response("Invalid", { status: 403 });
+      return new Response("Invalid token", { status: 403 });
     }
 
     const payload = await req.json();
-    const message = payload.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    const entry = payload.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const message = changes?.value?.messages?.[0];
 
     if (message?.text?.body) {
       const from = message.from;
       const body = message.text.body;
 
-      // Comando de RESCATE de una sola palabra para probar conexión
-      // Comando secreto de RESET
       if (body.toLowerCase() === 'reset') {
-        await supabase.from('profiles').update({ onboarding_step: null, onboarding_metadata: {} }).eq('whatsapp_number', from);
+        await supabase.from('registration_states').delete().eq('whatsapp_number', from);
         await sendWhatsAppMessage(from, "🔄 Estado reseteado. Puedes empezar de nuevo con 'nueva tienda'.");
         return new Response("OK", { status: 200 });
       }
 
-      if (body.toLowerCase() === 'test') {
-        await sendWhatsAppMessage(from, "🚀 Conexión establecida. El sistema está vivo.");
-        return new Response("OK", { status: 200 });
-      }
-
-      let { data: profile } = await supabase.from('profiles').select('*').eq('whatsapp_number', from).single();
+      // 1. Obtener Perfil
+      let { data: profile } = await supabase.from('profiles').select('*').eq('whatsapp_number', from).maybeSingle();
       if (!profile) {
-        const { data: newUser } = await supabase.from('profiles').insert({ whatsapp_number: from, role: 'owner' }).select().single();
+        const { data: newUser } = await supabase.from('profiles').insert({ 
+          whatsapp_number: from, 
+          role: 'owner',
+          full_name: 'Usuario'
+        }).select().single();
         profile = newUser;
       }
 
-      const result = await handleCommand(body, profile || { whatsapp_number: from });
-      
-      if (result.metadata?.intent === 'CREATE_NEW_BRANCH' && !result.nextStep) {
-        const ownerId = (from === '5215513531114') ? 'cc04e6ce-7abf-4926-a3aa-f15166422e32' : profile?.id;
-        const { data: store, error: sErr } = await supabase.from('stores').insert({ name: result.metadata.name, owner_id: ownerId }).select().single();
-        if (sErr) {
-          await sendWhatsAppMessage(from, `❌ Error DB: ${sErr.message}`);
-        } else {
-          if (profile?.id) await supabase.from('profiles').update({ store_id: store.id }).eq('id', profile.id);
-          await sendWhatsAppMessage(from, `✅ ¡Sucursal *"${store.name}"* creada!`);
+      // 2. Obtener Estado Conversacional
+      const { data: convState } = await supabase.from('registration_states').select('*').eq('whatsapp_number', from).maybeSingle();
+
+      // 3. Procesar Comando (Firma correcta)
+      const convRes = await handleCommand(body, profile.store_id, supabase, profile.full_name || 'Amigo', convState);
+
+      if (convRes && convRes.responseText) {
+        const meta = convRes.metadata;
+
+        // EJECUCIONES EN DB
+        if (!convRes.nextStep && meta?.intent === 'CREATE_NEW_BRANCH') {
+          // Hardcode de seguridad para el usuario principal
+          const ownerId = (from === '5215513531114') ? 'cc04e6ce-7abf-4926-a3aa-f15166422e32' : profile?.id;
+          
+          const { data: newStore, error: storeError } = await supabase.from('stores').insert({
+            name: meta.name,
+            owner_id: ownerId,
+            logo_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(meta.name)}`
+          }).select().single();
+
+          if (storeError) {
+             await sendWhatsAppMessage(from, `❌ Error DB: ${storeError.message}`);
+          } else if (newStore) {
+             await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', profile.id);
+             // No enviamos un mensaje de éxito extra aquí si el parser ya manda uno. Pero el parser espera que sí, así que:
+             await sendWhatsAppMessage(from, `✅ ¡Sucursal *"${newStore.name}"* registrada y vinculada!`);
+          }
         }
-      } else if (result.responseText) {
-        await sendWhatsAppMessage(from, result.responseText);
+
+        if (!convRes.nextStep && meta?.intent === 'LINK_OWNER_CONFIRMED') {
+          await supabase.from('stores').update({ owner_id: profile.id }).eq('id', meta.storeId);
+          await supabase.from('profiles').update({ store_id: meta.storeId }).eq('id', profile.id);
+          await sendWhatsAppMessage(from, `✅ Ahora eres el dueño oficial de *${meta.storeName}*.`);
+        }
+
+        // GUARDAR ESTADO PARA LA SIGUIENTE PREGUNTA
+        if (convRes.nextStep) {
+          await supabase.from('registration_states').upsert({ 
+            whatsapp_number: from, 
+            step: convRes.nextStep, 
+            metadata: meta 
+          });
+        } else {
+          await supabase.from('registration_states').delete().eq('whatsapp_number', from);
+        }
+
+        // ENVIAR RESPUESTA FINAL
+        await sendWhatsAppMessage(from, convRes.responseText);
       }
     }
     return new Response("OK", { status: 200 });
