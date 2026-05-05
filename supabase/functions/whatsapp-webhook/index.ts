@@ -99,8 +99,10 @@ serve(async (req) => {
           await supabase.from('registration_states').delete().eq('whatsapp_number', from);
         }
 
-        // ENVIAR RESPUESTA FINAL
-        await sendWhatsAppMessage(from, convRes.responseText);
+        // ENVIAR RESPUESTA FINAL (Omitimos el mensaje base si es creación de tienda, ya que enviamos el éxito arriba)
+        if (meta?.intent !== 'CREATE_NEW_BRANCH') {
+          await sendWhatsAppMessage(from, convRes.responseText);
+        }
       }
     }
     return new Response("OK", { status: 200 });
