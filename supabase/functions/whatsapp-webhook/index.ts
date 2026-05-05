@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7"
 import { handleCommand, executeCommand } from './parser.ts';
+import { Templates } from './templates.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -38,7 +39,7 @@ serve(async (req) => {
 
       if (body.toLowerCase() === 'reset') {
         await supabase.from('registration_states').delete().eq('whatsapp_number', from);
-        await sendWhatsAppMessage(from, "🔄 Estado reseteado. Puedes empezar de nuevo con 'nueva tienda'.");
+        await sendWhatsAppMessage(from, Templates.Global.reset);
         return new Response("OK", { status: 200 });
       }
 
@@ -74,18 +75,18 @@ serve(async (req) => {
           }).select().single();
 
           if (storeError) {
-             await sendWhatsAppMessage(from, `❌ Error DB: ${storeError.message}`);
+             await sendWhatsAppMessage(from, Templates.Global.errorDb(storeError.message));
           } else if (newStore) {
              await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', profile.id);
              // Enviamos el mensaje de éxito y la invitación a añadir el primer producto
-             await sendWhatsAppMessage(from, `✅ ¡Sucursal *"${newStore.name}"* registrada!\n\n¿Te gustaría dar de alta tu primer producto? 📦`);
+             await sendWhatsAppMessage(from, Templates.Onboarding.storeCreatedSuccess(newStore.name));
           }
         }
 
         if (!convRes.nextStep && meta?.intent === 'LINK_OWNER_CONFIRMED') {
           await supabase.from('stores').update({ owner_id: profile.id }).eq('id', meta.storeId);
           await supabase.from('profiles').update({ store_id: meta.storeId }).eq('id', profile.id);
-          await sendWhatsAppMessage(from, `✅ Ahora eres el dueño oficial de *${meta.storeName}*.`);
+          await sendWhatsAppMessage(from, Templates.Admin.linkStoreConfirmedOwner(meta.storeName));
         }
 
         // GUARDAR ESTADO PARA LA SIGUIENTE PREGUNTA

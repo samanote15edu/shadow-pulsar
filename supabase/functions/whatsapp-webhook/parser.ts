@@ -1,4 +1,5 @@
 import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { Templates } from './templates.ts';
 
 export interface CommandResponse {
   responseText: string;
@@ -86,7 +87,7 @@ export async function handleCommand(
   // 0. COMANDO GLOBAL: SALIR
   if (isNegative(s) && !currentStep) {
     return {
-      responseText: "👋 Entendido. He cancelado el proceso actual. ¿En qué más puedo ayudarte?",
+      responseText: Templates.Global.cancel,
       nextStep: undefined,
       metadata: {}
     };
@@ -97,14 +98,14 @@ export async function handleCommand(
     if (isPositive(s)) {
       if (currentStep === 'awaiting_sale_confirmation') {
         return {
-          responseText: `🥤 *Venta Confirmada*\nTotal: *$${metadata.total}*\n\n¿Deseas registrar el **pago completo** ahora?`,
+          responseText: Templates.Sales.saleConfirmedPaymentChoice(metadata.total),
           nextStep: 'awaiting_payment_choice',
           metadata: { ...metadata }
         };
       }
       if (currentStep === 'awaiting_new_store_confirmation') {
         return {
-          responseText: `✨ Procesando la creación de la tienda *"${metadata.newStoreName}"*...`,
+          responseText: Templates.Onboarding.storeCreatedProcessing(metadata.newStoreName),
           nextStep: 'awaiting_first_product_choice',
           metadata: { intent: 'CREATE_NEW_BRANCH', name: metadata.newStoreName }
         };
@@ -113,28 +114,28 @@ export async function handleCommand(
       // Si no hay suggestedId, es un producto NUEVO que estamos registrando tras un fallo de búsqueda
       if (!metadata.suggestedId) {
         return {
-          responseText: `✨ Entendido. Vamos a registrar **"${metadata.newName}"** como producto nuevo.\n\n¿A qué **precio de venta** lo vas a dar?`,
+          responseText: Templates.Inventory.newProductFallback(metadata.newName),
           nextStep: 'awaiting_new_product_price',
           metadata: { newName: metadata.newName, pendingQty: metadata.pendingQty }
         };
       }
 
       return {
-        responseText: `✅ ¡Listo! Registré **${metadata.pendingQty} ${metadata.suggestedName}** en el inventario.`,
+        responseText: Templates.Inventory.restockSuccess(metadata.pendingQty, metadata.suggestedName),
         metadata: { intent: 'RESTOCK', productId: metadata.suggestedId, qty: metadata.pendingQty }
       };
     } else if (isNegative(s)) {
       if (currentStep === 'awaiting_first_product_choice') {
-        return { responseText: "👍 ¡Entendido! Sabías que puedes registrar productos en el futuro escribiendo *'Surtido'* o simplemente *'Llegaron 5 cocas'*.\n\n¿En qué más te ayudo?" };
+        return { responseText: Templates.Onboarding.firstProductDecline };
       }
       // CANCELACIONES
       if (currentStep === 'awaiting_sale_confirmation' || currentStep === 'awaiting_new_store_confirmation') {
-        return { responseText: "❌ Operación cancelada." };
+        return { responseText: Templates.Global.cancelOperation };
       }
       
       // RESURTIDO -> REGISTRO NUEVO
       return {
-        responseText: `✨ Entendido. Vamos a registrar **"${metadata.newName}"** como producto nuevo.\n\n¿A qué **precio de venta** lo vas a dar?`,
+        responseText: Templates.Inventory.newProductFallback(metadata.newName),
         nextStep: 'awaiting_new_product_price',
         metadata: { newName: metadata.newName, pendingQty: metadata.pendingQty }
       };
@@ -145,26 +146,26 @@ export async function handleCommand(
   if (currentStep === 'awaiting_payment_choice') {
     if (isPositive(s)) {
       return {
-        responseText: `✅ *Pago Completo Registrado.*\n\nVenta cerrada con éxito.`,
+        responseText: Templates.Sales.fullPaymentSuccess,
         metadata: { intent: 'PROCESS_SALE', ...metadata, amountReceived: metadata.total }
       };
     } else if (isNegative(s)) {
       return {
-        responseText: "👤 *Pago Parcial / Fiado*\n\n¿Cuánto **recibiste** en efectivo ahora mismo?",
+        responseText: Templates.Sales.partialPaymentPrompt,
         nextStep: 'awaiting_paid_amount',
         metadata: { ...metadata }
       };
     }
-    return { responseText: "¿Deseas registrar el pago completo? (Responde Sí/No)" };
+    return { responseText: Templates.Sales.requireYesNoForFullPayment };
   }
 
   if (currentStep === 'awaiting_paid_amount') {
     const received = parseFloat(s.replace(/[^0-9.]/g, ''));
-    if (isNaN(received)) return { responseText: "❌ Envía solo el monto recibido (ej: 10)." };
+    if (isNaN(received)) return { responseText: Templates.Global.invalidNumberAmount };
     
     const debt = metadata.total - received;
     return {
-      responseText: `📝 Quedan *$${debt.toFixed(2)}* pendientes.\n\n¿A qué **cliente** le anotamos esta deuda?`,
+      responseText: Templates.Sales.debtRemainingPrompt(debt),
       nextStep: 'awaiting_debtor_name',
       metadata: { ...metadata, amountReceived: received, debt }
     };
@@ -172,7 +173,7 @@ export async function handleCommand(
 
   if (currentStep === 'awaiting_debtor_name') {
     return {
-      responseText: `✅ ¡Anotado! Deuda registrada para **${text}**.\n\nVenta finalizada.`,
+      responseText: Templates.Sales.debtRegisteredSuccess(text),
       metadata: { intent: 'PROCESS_SALE', ...metadata, customerName: text }
     };
   }
@@ -181,18 +182,18 @@ export async function handleCommand(
   if (currentStep === 'awaiting_first_product_choice') {
     if (isNegative(s)) {
       return { 
-        responseText: "👍 ¡No hay problema! Puedes dar de alta productos en el futuro. Ejemplo: *'Surtido'*, *'Llegaron 10 cocas'*, o *'Surtido de 5 jugos'*.\n\n¿En qué más te ayudo?" 
+        responseText: Templates.Onboarding.firstProductDecline
       };
     }
     return {
-      responseText: "✍️ ¡Excelente! ¿Cuál es el **nombre** del producto?\n\n_(Ej: Coca Cola 600ml)_",
+      responseText: Templates.Onboarding.firstProductPrompt,
       nextStep: 'awaiting_first_product_name'
     };
   }
 
   if (currentStep === 'awaiting_first_product_name') {
     return {
-      responseText: `📦 ¿Cuántas unidades de **"${text}"** tienes ahora mismo?`,
+      responseText: Templates.Onboarding.firstProductQtyPrompt(text),
       nextStep: 'awaiting_new_product_price', // Saltamos al flujo que ya pide precio/costo
       metadata: { newName: text, pendingQty: 0 } // El usuario enviará el stock ahora
     };
@@ -201,19 +202,19 @@ export async function handleCommand(
   // Reutilizamos el resto de los flujos de precio/costo
   if (currentStep === 'awaiting_new_product_price') {
     const val = parseFloat(s.replace(/[^0-9.]/g, ''));
-    if (isNaN(val)) return { responseText: "❌ Por favor envía solo el número (ej: 25)." };
+    if (isNaN(val)) return { responseText: Templates.Global.invalidNumber };
     
     // Si no tenemos qty todavía (venimos de el flujo de nombre), este número es la cantidad
     if (metadata.pendingQty === 0) {
       return {
-        responseText: `💰 ¡Bien! ¿A qué **precio de venta** lo vas a dar?`,
+        responseText: Templates.Onboarding.newProductPricePrompt,
         nextStep: 'awaiting_new_product_price',
         metadata: { ...metadata, pendingQty: val }
       };
     }
 
     return {
-      responseText: `💰 ¿Y cuánto te **costó** cada unidad?`,
+      responseText: Templates.Onboarding.newProductCostPrompt,
       nextStep: 'awaiting_new_product_cost',
       metadata: { ...metadata, price: val }
     };
@@ -222,9 +223,9 @@ export async function handleCommand(
   // 1.2 Capturar Costo y Finalizar (Nuevo Producto)
   if (currentStep === 'awaiting_new_product_cost') {
     const cost = parseFloat(s.replace(/[^0-9.]/g, ''));
-    if (isNaN(cost)) return { responseText: "❌ Por favor envía solo el número del costo (ej: 18)." };
+    if (isNaN(cost)) return { responseText: Templates.Global.invalidNumber };
     return {
-      responseText: `✅ *¡Producto Registrado!* ✨\n\nNombre: ${metadata.newName}\nStock inicial: +${metadata.pendingQty}\nPrecio: $${metadata.price}\nCosto: $${cost}`,
+      responseText: Templates.Onboarding.productRegisteredSuccess(metadata.newName, metadata.pendingQty, metadata.price, cost),
       metadata: { intent: 'CREATE_PRODUCT', name: metadata.newName, price: metadata.price, cost: cost, qty: metadata.pendingQty }
     };
   }
@@ -234,17 +235,17 @@ export async function handleCommand(
     const { data: stores } = await supabase.from('stores').select('id, name').ilike('name', `%${s}%`);
     if (stores && stores.length > 0) {
       return {
-        responseText: `📍 Sucursal cambiada a **${stores[0].name}**.`,
+        responseText: Templates.Admin.storeSwitchedSuccess(stores[0].name),
         metadata: { intent: 'UPDATE_PROFILE_STORE', storeId: stores[0].id }
       };
     }
-    return { responseText: "❌ No encontré esa tienda. Escribe el nombre exacto o 'Salir'." };
+    return { responseText: Templates.Admin.switchStoreNotFound };
   }
 
   // 1.4 Crear Nueva Tienda
   if (currentStep === 'awaiting_new_store_name') {
     return {
-      responseText: `✨ ¿Confirmas la creación de la tienda **"${text}"**?`,
+      responseText: Templates.Onboarding.newStoreConfirmation(text),
       nextStep: 'awaiting_new_store_confirmation',
       metadata: { newStoreName: text }
     };
@@ -276,14 +277,14 @@ export async function handleCommand(
 
     if (bestMatch && bestMatch.similarity > 0.4) {
       return {
-        responseText: `📦 ¿Confirmas resurtido de **${intentResult.qty} ${bestMatch.name}**?`,
+        responseText: Templates.Inventory.restockConfirmation(intentResult.qty, bestMatch.name),
         nextStep: 'awaiting_similarity_confirmation',
         metadata: { suggestedId: bestMatch.id, suggestedName: bestMatch.name, pendingQty: intentResult.qty, newName: intentResult.product }
       };
     }
 
     return {
-      responseText: `🔍 No encontré "${intentResult.product}" en tu inventario.\n\n¿Quieres registrarlo como **producto nuevo**?`,
+      responseText: Templates.Inventory.productNotFound(intentResult.product),
       nextStep: 'awaiting_similarity_confirmation',
       metadata: { newName: intentResult.product, pendingQty: intentResult.qty, isNew: true }
     };
@@ -310,7 +311,7 @@ export async function handleCommand(
     if (bestMatch && bestMatch.similarity > 0.3) {
       const total = intentResult.qty * (bestMatch.base_price || 0);
       return {
-        responseText: `🥤 ¿Confirmas venta de **${intentResult.qty} ${bestMatch.name}**?\n\nTOTAL: *$${total}*`,
+        responseText: Templates.Sales.saleConfirmation(intentResult.qty, bestMatch.name, total),
         nextStep: 'awaiting_sale_confirmation',
         metadata: { 
           productId: bestMatch.id, 
@@ -323,65 +324,57 @@ export async function handleCommand(
       };
     }
 
-    return { responseText: `🔍 No encontré el producto "${intentResult.product}" para venderlo.` };
+    return { responseText: Templates.Sales.saleProductNotFound(intentResult.product) };
   }
 
   // --- COMANDOS ADMINISTRATIVOS ---
   if (intentResult.intent === 'SWITCH_STORE') {
     const { data: stores } = await supabase.from('stores').select('id, name').eq('owner_id', (await supabase.from('profiles').select('id').eq('store_id', storeId).maybeSingle()).data?.id);
-    if (!stores || stores.length <= 1) return { responseText: "📍 Solo tienes una tienda registrada." };
+    if (!stores || stores.length <= 1) return { responseText: Templates.Admin.switchStoreOnlyOne };
     
     return {
-      responseText: "📍 *Cambiar de Sucursal*\n\nEscribe el nombre de la tienda a la que quieres cambiar:\n\n" + stores.map(s => `• ${s.name}`).join('\n'),
+      responseText: Templates.Admin.switchStorePrompt(stores.map(s => `• ${s.name}`).join('\n')),
       nextStep: 'awaiting_store_switch'
     };
   }
 
   if (intentResult.intent === 'GET_LINK') {
     const { data: user } = await supabase.from('profiles').select('id').eq('store_id', storeId).maybeSingle();
-    return { responseText: `🔗 *Tu Panel de Control:*\n\nhttps://shadow-pulsar.vercel.app/?s=${storeId}&u=${user?.id}` };
+    return { responseText: Templates.Global.dashboardLink(storeId, user?.id || '') };
   }
 
   if (intentResult.intent === 'CREATE_STORE') {
     return {
-      responseText: "✨ *Nueva Sucursal*\n\n¿Cómo se llamará la nueva tienda?",
+      responseText: Templates.Onboarding.newStorePrompt,
       nextStep: 'awaiting_new_store_name'
     };
   }
 
   if (intentResult.intent === 'GET_INVENTORY') {
     const { data: prods } = await supabase.from('products').select('name, current_stock').eq('store_id', storeId).eq('is_active', true).order('current_stock', { ascending: true }).limit(10);
-    if (!prods) return { responseText: "📭 Tu inventario está vacío." };
+    if (!prods) return { responseText: Templates.Inventory.emptyInventory };
     const list = prods.map(p => `${p.current_stock <= 0 ? '❌' : '📦'} ${p.name}: *${p.current_stock}*`).join('\n');
-    return { responseText: `📊 *Inventario Actual (Top 10):*\n\n${list}\n\nEscribe 'Inventario' para ver todo en el panel.` };
+    return { responseText: Templates.Inventory.inventoryList(list) };
   }
 
   if (intentResult.intent === 'HELP') {
-    let msg = `🤖 *Asistente Shadow Pulsar*\n\n`;
-    msg += `Puedes escribirme de forma natural:\n\n`;
-    msg += `🥤 *Ventas:* "Vendí 2 cocas", "2 sabritas", "1 jugo".\n`;
-    msg += `📦 *Surtido:* "Llegaron 10 cocas", "Surtido de 5 jugos".\n`;
-    msg += `📍 *Sucursales:* "Cambiar" (para moverte de tienda).\n`;
-    msg += `📊 *Consultas:* "Inventario", "Link" (panel web).\n`;
-    msg += `✨ *Nuevos:* Si un producto no existe, te guiaré para crearlo.\n\n`;
-    msg += `Escribe *'Salir'* en cualquier momento para cancelar.`;
-    return { responseText: msg };
+    return { responseText: Templates.Global.help };
   }
 
   // --- FLUJO DE ABONOS ---
   if (intentResult.intent === 'PAYMENT_LEDGER') {
     if (!intentResult.customer) {
-      return { responseText: "👤 ¿A qué *cliente* le quieres registrar el abono?" };
+      return { responseText: Templates.Ledger.ledgerPaymentPrompt };
     }
     
     const { data: ledger } = await supabase.from('fiado_ledgers').select('*').eq('store_id', storeId).ilike('customer_name', `%${intentResult.customer}%`).maybeSingle();
     
     if (!ledger) {
-      return { responseText: `🔍 No encontré al cliente "${intentResult.customer}". Asegúrate de que tenga una deuda registrada.` };
+      return { responseText: Templates.Ledger.ledgerCustomerNotFound(intentResult.customer) };
     }
 
     return {
-      responseText: `💰 ¿Confirmas abono de **$${intentResult.amount}** para **${ledger.customer_name}**?\n\nSaldo actual: $${ledger.current_balance}`,
+      responseText: Templates.Ledger.ledgerPaymentConfirmation(intentResult.amount, ledger.customer_name, ledger.current_balance),
       nextStep: 'awaiting_payment_ledgers_confirmation',
       metadata: { customerId: ledger.id, customerName: ledger.customer_name, amount: intentResult.amount }
     };
@@ -390,24 +383,24 @@ export async function handleCommand(
   if (currentStep === 'awaiting_payment_ledgers_confirmation') {
     if (isPositive(s)) {
       return {
-        responseText: `✅ ¡Abono registrado! Saldo actualizado para **${metadata.customerName}**.`,
+        responseText: Templates.Ledger.ledgerPaymentSuccess(metadata.customerName),
         metadata: { intent: 'PROCESS_ABONO', customerId: metadata.customerId, amount: metadata.amount, customerName: metadata.customerName }
       };
     }
-    return { responseText: "❌ Abono cancelado." };
+    return { responseText: Templates.Global.cancelOperation };
   }
 
   // --- FLUJO DE CIERRE DE CAJA ---
   if (intentResult.intent === 'CASH_CLOSE') {
     return {
-      responseText: "💰 *Cierre de Caja Ciego*\n\n¿Cuánto **efectivo físico** tienes ahora mismo en caja?\n\n_(Envía solo el número)_",
+      responseText: Templates.Admin.cashClosePrompt,
       nextStep: 'awaiting_physical_cash'
     };
   }
 
   if (currentStep === 'awaiting_physical_cash') {
     const physical = parseFloat(s.replace(/[^0-9.]/g, ''));
-    if (isNaN(physical)) return { responseText: "❌ Por favor envía solo el número (ej: 1550)." };
+    if (isNaN(physical)) return { responseText: Templates.Global.invalidNumber };
 
     // Obtener último cierre para calcular lo esperado
     let sinceTimestamp = '1970-01-01T00:00:00Z';
@@ -418,15 +411,8 @@ export async function handleCommand(
     const expected = txs?.reduce((sum, tx) => sum + (Number(tx.amount_received) || 0), 0) || 0;
     const diff = physical - expected;
 
-    let resMsg = `📊 *Resumen de Cierre*\n\n`;
-    resMsg += `• Efectivo Real: *$${physical.toFixed(2)}*\n`;
-    resMsg += `• Sistema Espera: $${expected.toFixed(2)}\n`;
-    resMsg += `---------------------------\n`;
-    resMsg += `• Diferencia: *${diff >= 0 ? '+' : ''}$${diff.toFixed(2)}* ${diff === 0 ? '✅' : '⚠️'}\n\n`;
-    resMsg += `¿Confirmas el cierre del turno?`;
-
     return {
-      responseText: resMsg,
+      responseText: Templates.Admin.cashCloseSummary(physical, expected, diff),
       nextStep: 'awaiting_corte_confirmation',
       metadata: { physical, expected, diff, since: sinceTimestamp }
     };
@@ -435,21 +421,21 @@ export async function handleCommand(
   if (currentStep === 'awaiting_corte_confirmation') {
     if (isPositive(s)) {
       return {
-        responseText: "✅ *Caja Cerrada*. El registro ha sido guardado.",
+        responseText: Templates.Admin.cashCloseSuccess,
         metadata: { intent: 'PROCESS_CORTE', physical: metadata.physical, expected: metadata.expected, since: metadata.since }
       };
     }
-    return { responseText: "❌ Corte cancelado." };
+    return { responseText: Templates.Global.cancelOperation };
   }
 
   // --- FLUJO DE ANULACIÓN ---
   if (intentResult.intent === 'VOID_SALE') {
     const { data: lastTx } = await supabase.from('transactions').select('*, products(name)').eq('store_id', storeId).eq('type', 'sale').is('is_voided', false).order('created_at', { ascending: false }).limit(1).maybeSingle();
     
-    if (!lastTx) return { responseText: "🔍 No encontré ninguna venta reciente para anular." };
+    if (!lastTx) return { responseText: Templates.Admin.voidSaleNotFound };
 
     return {
-      responseText: `🗑️ ¿Confirmas la **anulación** de la última venta?\n\n• Producto: *${(lastTx as any).products.name}*\n• Cantidad: ${Math.abs(lastTx.quantity_change)}\n• Total: $${lastTx.total_amount}`,
+      responseText: Templates.Admin.voidSaleConfirmation((lastTx as any).products.name, Math.abs(lastTx.quantity_change), lastTx.total_amount),
       nextStep: 'awaiting_void_confirmation',
       metadata: { transactionId: lastTx.id, productId: lastTx.product_id, qty: Math.abs(lastTx.quantity_change) }
     };
@@ -458,21 +444,21 @@ export async function handleCommand(
   if (currentStep === 'awaiting_void_confirmation') {
     if (isPositive(s)) {
       return {
-        responseText: "✅ *Venta Anulada*. El stock ha sido devuelto.",
+        responseText: Templates.Admin.voidSaleSuccess,
         metadata: { intent: 'PROCESS_VOID', transactionId: metadata.transactionId, productId: metadata.productId, qty: metadata.qty }
       };
     }
-    return { responseText: "❌ Anulación cancelada." };
+    return { responseText: Templates.Global.cancelOperation };
   }
 
   // --- FLUJO DE AUDITORÍA ---
   if (intentResult.intent === 'AUDIT_INVENTORY') {
     const { data: products } = await supabase.from('products').select('id, name, current_stock').eq('store_id', storeId).order('name', { ascending: true });
     
-    if (!products || products.length === 0) return { responseText: "❌ No hay productos registrados para auditar." };
+    if (!products || products.length === 0) return { responseText: Templates.Admin.auditEmpty };
 
     return {
-      responseText: `📝 *Iniciando Auditoría*\n\nTe preguntaré por cada producto. Escribe el número físico que tienes.\n\n1. **${products[0].name}**\n¿Cuántos hay físicamente?`,
+      responseText: Templates.Admin.auditStart(products[0].name),
       nextStep: 'awaiting_audit_count',
       metadata: { products, currentIndex: 0 }
     };
@@ -480,7 +466,7 @@ export async function handleCommand(
 
   if (currentStep === 'awaiting_audit_count') {
     const physical = parseFloat(s.replace(/[^0-9.]/g, ''));
-    if (isNaN(physical)) return { responseText: "❌ Envía solo el número físico (ej: 5)." };
+    if (isNaN(physical)) return { responseText: Templates.Global.invalidNumber };
 
     const { products, currentIndex } = metadata;
     const currentProd = products[currentIndex];
@@ -501,12 +487,12 @@ export async function handleCommand(
     const nextIndex = currentIndex + 1;
     if (nextIndex < products.length) {
       return {
-        responseText: `✅ Guardado. Siguiente:\n\n${nextIndex + 1}. **${products[nextIndex].name}**\n¿Cuántos hay físicamente?`,
+        responseText: Templates.Admin.auditNext(nextIndex + 1, products[nextIndex].name),
         nextStep: 'awaiting_audit_count',
         metadata: { products, currentIndex: nextIndex }
       };
     } else {
-      return { responseText: "🏁 *Auditoría Finalizada*. Todos los stocks han sido sincronizados." };
+      return { responseText: Templates.Admin.auditFinished };
     }
   }
 
@@ -516,10 +502,10 @@ export async function handleCommand(
     // Búsqueda agresiva: Cualquier tienda que coincida, tenga dueño o no
     const { data: store } = await supabase.from('stores').select('id, name').ilike('name', `%${cleanSearch}%`).limit(1).maybeSingle();
     
-    if (!store) return { responseText: `🔍 No encontré ninguna tienda que se parezca a "${cleanSearch}".` };
+    if (!store) return { responseText: Templates.Admin.linkStoreNotFound(cleanSearch) };
     
     return {
-      responseText: `🔗 ¿Confirmas que quieres ser el dueño de **${store.name}**? (Esto sobreescribirá el dueño actual si existe)`,
+      responseText: Templates.Admin.linkStoreConfirmation(store.name),
       nextStep: 'awaiting_link_confirmation',
       metadata: { storeId: store.id, storeName: store.name }
     };
@@ -530,11 +516,11 @@ export async function handleCommand(
       const { data: profile } = await supabase.from('profiles').select('id').eq('whatsapp_number', senderName.replace(/\D/g, '')).maybeSingle();
       if (profile) {
         await supabase.from('stores').update({ owner_id: profile.id }).eq('id', metadata.storeId);
-        return { responseText: `✅ ¡Vinculación exitosa! Refresca el panel para ver **${metadata.storeName}**.` };
+        return { responseText: Templates.Admin.linkStoreSuccess(metadata.storeName) };
       }
-      return { responseText: "❌ No pude encontrar tu perfil de usuario." };
+      return { responseText: Templates.Admin.linkStoreProfileNotFound };
     }
-    return { responseText: "❌ Vinculación cancelada." };
+    return { responseText: Templates.Global.cancelOperation };
   }
 
   return { responseText: "" };
