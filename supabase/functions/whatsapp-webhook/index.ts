@@ -199,17 +199,22 @@ serve(async (req) => {
       }
 
       if (!convRes.nextStep && meta?.intent === 'CREATE_NEW_BRANCH') {
-        // HARDCODE FIX: Ensure your specific WhatsApp number always uses your real Owner ID
         const finalOwnerId = (from === '5215513531114') ? 'cc04e6ce-7abf-4926-a3aa-f15166422e32' : profile.id;
         
-        const { data: newStore } = await supabase.from('stores').insert({
+        const { data: newStore, error: storeError } = await supabase.from('stores').insert({
           name: meta.name,
           owner_id: finalOwnerId,
           logo_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(meta.name)}`
         }).select().single();
+
+        if (storeError) {
+          await sendWhatsAppMessage(from, `❌ Error de Base de Datos: ${storeError.message}\nDetalle: ${storeError.details}`);
+          return new Response("Error creating store", { status: 200 });
+        }
+
         if (newStore) {
-          // Cambiar automáticamente a la nueva tienda
           await supabase.from('profiles').update({ store_id: newStore.id }).eq('whatsapp_number', from);
+          await sendWhatsAppMessage(from, `✅ Tienda *"${newStore.name}"* creada con éxito.`);
         }
       }
 
