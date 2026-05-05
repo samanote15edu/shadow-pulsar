@@ -201,6 +201,8 @@ serve(async (req) => {
       if (!convRes.nextStep && meta?.intent === 'CREATE_NEW_BRANCH') {
         const finalOwnerId = (from === '5215513531114') ? 'cc04e6ce-7abf-4926-a3aa-f15166422e32' : profile.id;
         
+        await sendWhatsAppMessage(from, `🛠️ Depuración:\nNombre: ${meta.name}\nOwnerID: ${finalOwnerId}`);
+
         const { data: newStore, error: storeError } = await supabase.from('stores').insert({
           name: meta.name,
           owner_id: finalOwnerId,
@@ -208,13 +210,13 @@ serve(async (req) => {
         }).select().single();
 
         if (storeError) {
-          await sendWhatsAppMessage(from, `❌ Error de Base de Datos: ${storeError.message}\nDetalle: ${storeError.details}`);
-          return new Response("Error creating store", { status: 200 });
+          await sendWhatsAppMessage(from, `❌ Error DB: ${storeError.message}`);
+          return new Response("Error", { status: 200 });
         }
 
         if (newStore) {
           await supabase.from('profiles').update({ store_id: newStore.id }).eq('whatsapp_number', from);
-          await sendWhatsAppMessage(from, `✅ Tienda *"${newStore.name}"* creada con éxito.`);
+          await sendWhatsAppMessage(from, `✅ ¡LOGRADO! Tienda *"${newStore.name}"* ID: ${newStore.id}`);
         }
       }
 
