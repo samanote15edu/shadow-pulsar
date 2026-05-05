@@ -508,18 +508,13 @@ export async function handleCommand(
   // --- FLUJO DE VINCULACIÓN ---
   if (intentResult.intent === 'LINK_OWNER') {
     const cleanSearch = intentResult.storeName.replace(/["']/g, '').trim();
-    let { data: store } = await supabase.from('stores').select('id, name').ilike('name', `%${cleanSearch}%`).limit(1).maybeSingle();
+    // Búsqueda agresiva: Cualquier tienda que coincida, tenga dueño o no
+    const { data: store } = await supabase.from('stores').select('id, name').ilike('name', `%${cleanSearch}%`).limit(1).maybeSingle();
     
-    // Si no encuentra por nombre, buscar la última tienda sin dueño
-    if (!store) {
-      const { data: lastUnowned } = await supabase.from('stores').select('id, name').is('owner_id', null).order('created_at', { ascending: false }).limit(1).maybeSingle();
-      store = lastUnowned;
-    }
-
-    if (!store) return { responseText: `🔍 No encontré ninguna tienda para vincular.` };
+    if (!store) return { responseText: `🔍 No encontré ninguna tienda que se parezca a "${cleanSearch}".` };
     
     return {
-      responseText: `🔗 ¿Confirmas que eres el dueño de **${store.name}** y quieres vincularla a tu panel?`,
+      responseText: `🔗 ¿Confirmas que quieres ser el dueño de **${store.name}**? (Esto sobreescribirá el dueño actual si existe)`,
       nextStep: 'awaiting_link_confirmation',
       metadata: { storeId: store.id, storeName: store.name }
     };
