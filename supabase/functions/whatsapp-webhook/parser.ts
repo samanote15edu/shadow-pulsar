@@ -19,7 +19,7 @@ export function detectIntent(text: string): any {
   if (s.includes('anular') || s.includes('borrar venta')) return { intent: 'VOID_SALE' };
   if (s === 'auditoria' || s === 'revisar stock') return { intent: 'AUDIT_INVENTORY' };
 
-  if (s.includes('vincular')) {
+  if (s.startsWith('vincular')) {
     const storeName = s.replace('vincular', '').trim();
     return { intent: 'LINK_OWNER', storeName };
   }
@@ -507,8 +507,10 @@ export async function handleCommand(
 
   // --- FLUJO DE VINCULACIÓN ---
   if (intentResult.intent === 'LINK_OWNER') {
-    const { data: store } = await supabase.from('stores').select('id, name').ilike('name', `%${intentResult.storeName}%`).maybeSingle();
-    if (!store) return { responseText: `🔍 No encontré ninguna tienda que se llame "${intentResult.storeName}".` };
+    const cleanSearch = intentResult.storeName.replace(/["']/g, '').trim();
+    const { data: store } = await supabase.from('stores').select('id, name').ilike('name', `%${cleanSearch}%`).limit(1).maybeSingle();
+    
+    if (!store) return { responseText: `🔍 No encontré ninguna tienda que se parezca a "${cleanSearch}".` };
     
     return {
       responseText: `🔗 ¿Confirmas que eres el dueño de **${store.name}** y quieres vincularla a tu panel?`,
