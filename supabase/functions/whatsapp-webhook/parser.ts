@@ -104,8 +104,7 @@ export async function handleCommand(
       }
       if (currentStep === 'awaiting_new_store_confirmation') {
         return {
-          responseText: `✅ Tienda **"${metadata.newStoreName}"** creada con éxito.\n\n¿Te gustaría dar de alta tu primer producto? 📦`,
-          nextStep: 'awaiting_first_product_choice',
+          responseText: `✨ Procesando la creación de la tienda *"${metadata.newStoreName}"*...`,
           metadata: { intent: 'CREATE_NEW_BRANCH', name: metadata.newStoreName }
         };
       }

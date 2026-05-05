@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7"
+import { handleCommand } from './parser.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -16,57 +17,77 @@ async function sendWhatsAppMessage(to: string, text: string) {
 }
 
 serve(async (req) => {
-  try {
-    if (req.method === 'GET') {
-      const url = new URL(req.url);
-      if (url.searchParams.get('hub.verify_token') === 'shadow_pulsar_secret') {
-        return new Response(url.searchParams.get('hub.challenge'));
-      }
-      return new Response("Invalid token", { status: 403 });
+  if (req.method === 'GET') {
+    const url = new URL(req.url);
+    if (url.searchParams.get('hub.verify_token') === 'shadow_pulsar_secret') {
+      return new Response(url.searchParams.get('hub.challenge'));
     }
+    return new Response("Invalid token", { status: 403 });
+  }
 
+  try {
     const payload = await req.json();
-    const message = payload.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    const entry = payload.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const message = changes?.value?.messages?.[0];
 
     if (message?.text?.body) {
       const from = message.from;
-      const body = message.text.body.trim();
+      const body = message.text.body;
 
-      // MODO RESCATE: Cualquier persona que escriba "CREAR [NOMBRE]"
-      if (body.toLowerCase().startsWith('crear ')) {
-        const storeName = body.substring(6);
-        // Usamos tu ID real por defecto para esta prueba
-        const ownerId = 'cc04e6ce-7abf-4926-a3aa-f15166422e32';
+      // 1. Obtener perfil
+      let { data: profile } = await supabase.from('profiles').select('*').eq('whatsapp_number', from).single();
+      
+      if (!profile) {
+        const { data: newUser } = await supabase.from('profiles').insert({ 
+          whatsapp_number: from, 
+          role: 'owner' 
+        }).select().single();
+        profile = newUser;
+      }
 
-        await sendWhatsAppMessage(from, `🛠️ Intentando crear tienda: "${storeName}"...`);
+      // 2. Procesar comando vía Parser
+      const result = await handleCommand(body, profile);
+      
+      // 3. Lógica Especial: Creación de Tienda (Onboarding)
+      if (result.metadata?.intent === 'CREATE_NEW_BRANCH' && !result.nextStep) {
+        // Garantizamos el owner_id: Prioridad a Auth ID, fallback a Profile ID
+        const ownerId = profile.id; 
         
-        const { data: store, error: sErr } = await supabase.from('stores').insert({
-          name: storeName,
+        const { data: store, error: storeError } = await supabase.from('stores').insert({
+          name: result.metadata.name,
           owner_id: ownerId
         }).select().single();
 
-        if (sErr) {
-          await sendWhatsAppMessage(from, `❌ Error DB: ${sErr.message}`);
+        if (storeError) {
+          await sendWhatsAppMessage(from, `❌ Error al crear tienda: ${storeError.message}`);
         } else {
-          await sendWhatsAppMessage(from, `✅ ¡EXITO TOTAL! Tienda "${store.name}" creada. ID: ${store.id}\nRefresca tu dashboard.`);
+          // Vincular perfil a la nueva tienda
+          await supabase.from('profiles').update({ store_id: store.id }).eq('id', profile.id);
+          await sendWhatsAppMessage(from, `✅ ¡Sucursal *"${store.name}"* registrada y vinculada con éxito!`);
         }
-        return new Response("OK", { status: 200 });
-      }
+      } 
+      // 4. Lógica Especial: Vinculación Manual
+      else if (result.metadata?.intent === 'LINK_OWNER_CONFIRMED') {
+        const { error: linkError } = await supabase.from('stores')
+          .update({ owner_id: profile.id })
+          .eq('id', result.metadata.storeId);
 
-      // Si no es comando de rescate, intentar cargar el parser normal
-      try {
-        const { handleCommand } = await import('./parser.ts');
-        let { data: profile } = await supabase.from('profiles').select('*').eq('whatsapp_number', from).single();
-        const result = await handleCommand(body, profile || { whatsapp_number: from });
-        if (result.responseText) await sendWhatsAppMessage(from, result.responseText);
-      } catch (e) {
-        await sendWhatsAppMessage(from, "🤖 El sistema principal está en mantenimiento. Usa: 'CREAR [nombre]' para emergencias.");
+        if (linkError) {
+          await sendWhatsAppMessage(from, `❌ Error al vincular: ${linkError.message}`);
+        } else {
+          await supabase.from('profiles').update({ store_id: result.metadata.storeId }).eq('id', profile.id);
+          await sendWhatsAppMessage(from, `✅ Ahora eres el dueño oficial de *${result.metadata.storeName}*.`);
+        }
+      }
+      // 5. Respuesta Estándar
+      else if (result.responseText) {
+        await sendWhatsAppMessage(from, result.responseText);
       }
     }
-
-    return new Response("OK", { status: 200 });
   } catch (err) {
-    console.error(err);
-    return new Response("Internal Error", { status: 200 });
+    console.error("Webhook Error:", err);
   }
+
+  return new Response("OK", { status: 200 });
 });
