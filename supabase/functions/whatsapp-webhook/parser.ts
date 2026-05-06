@@ -79,7 +79,7 @@ export async function handleCommand(
 
   const isPositive = (text: string) => {
     const clean = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').trim();
-    return ['si', 's', 'yes', 'va', 'dale', 'confirmar', 'acepto'].includes(clean);
+    return ['si', 's', 'yes', 'va', 'dale', 'confirmar', 'acepto', 'so', 'sip', 'simon', 'sobres'].includes(clean);
   };
   const isNegative = (text: string) => {
     const clean = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').trim();
