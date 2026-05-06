@@ -49,8 +49,9 @@ export function detectIntent(text: string): any {
 
   if (isRestock) {
     let product = s;
-    restockKeywords.forEach(k => product = product.replace(k, ''));
-    product = product.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
+    restockKeywords.forEach(k => product = product.replace(new RegExp(`\\b${k}\\b`, 'gi'), ''));
+    product = product.replace(/(\d+(\.\d+)?)/g, '').replace(/\s+/g, ' ').trim();
+    product = product.replace(/^(?:(?:kilos|kilo|kg|gramos|gramo|gr|litros|litro|lt|paquetes|paquete|cajas|caja|piezas|pieza|pzas|pza|de)\b\s*)+/gi, '').trim();
     return { intent: 'RESTOCK', qty, product };
   }
 
@@ -62,7 +63,8 @@ export function detectIntent(text: string): any {
     const items = segments.map(seg => {
        const qtyMatch = seg.match(/^(\d+(\.\d+)?)/);
        const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
-       const product = seg.replace(/^(\d+(\.\d+)?)/, '').trim();
+       let product = seg.replace(/^(\d+(\.\d+)?)/, '').trim();
+       product = product.replace(/^(?:(?:kilos|kilo|kg|gramos|gramo|gr|litros|litro|lt|paquetes|paquete|cajas|caja|piezas|pieza|pzas|pza|de)\b\s*)+/gi, '').trim();
        return { qty, product };
     }).filter(i => i.product.length > 0);
 
