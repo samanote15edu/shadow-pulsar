@@ -116,16 +116,21 @@ serve(async (req) => {
 
         // 4. VENTAS
         if (!convRes.nextStep && meta?.intent === 'PROCESS_SALE') {
-          await supabase.rpc('increment_stock', { row_id: meta.productId, amount: -meta.qty });
-          await supabase.from('transactions').insert({
-            store_id: profile.store_id,
-            product_id: meta.productId,
-            type: 'sale',
-            quantity_change: -meta.qty,
-            total_amount: meta.total,
-            amount_received: meta.amountReceived || meta.total
-          });
+          const items = meta.items || [{ productId: meta.productId, qty: meta.qty, lineTotal: meta.total }];
           
+          for (const item of items) {
+            await supabase.rpc('increment_stock', { row_id: item.productId, amount: -item.qty });
+            await supabase.from('transactions').insert({
+              store_id: profile.store_id,
+              product_id: item.productId,
+              type: 'sale',
+              quantity_change: -item.qty,
+              total_amount: item.lineTotal,
+              amount_received: item.lineTotal // Para multi-item asumimos pago completo proporcional por linea si no hay un amountReceived global
+            });
+          }
+          
+          // Si el total no se cubrió completo y hay deuda
           if (meta.debt && meta.debt > 0 && meta.customerName) {
             const { data: ledger } = await supabase.from('fiado_ledgers').select('*').eq('store_id', profile.store_id).ilike('customer_name', `%${meta.customerName}%`).maybeSingle();
             if (ledger) {

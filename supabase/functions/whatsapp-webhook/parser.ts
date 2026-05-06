@@ -55,10 +55,21 @@ export function detectIntent(text: string): any {
   }
 
   if (isSale) {
-    let product = s;
-    saleKeywords.forEach(k => product = product.replace(k, ''));
-    product = product.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
-    return { intent: 'SALE', qty, product };
+    let cleanS = s;
+    saleKeywords.forEach(k => cleanS = cleanS.replace(new RegExp(`\\b${k}\\b`, 'gi'), ''));
+    cleanS = cleanS.replace(/,|\s+y\s+|\s+con\s+/gi, ' ').trim();
+    
+    const segments = cleanS.split(/(?=\b\d+\s+)/).filter(Boolean);
+    const items = segments.map(seg => {
+       const qtyMatch = seg.match(/^(\d+)/);
+       const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+       const product = seg.replace(/^\d+/, '').trim();
+       return { qty, product };
+    }).filter(i => i.product.length > 0);
+
+    if (items.length > 0) {
+       return { intent: 'MULTI_SALE', items };
+    }
   }
 
   return { intent: 'UNKNOWN' };
@@ -323,41 +334,67 @@ export async function handleCommand(
     };
   }
 
-  // --- FLUJO DE VENTA (SALE) ---
-  if (intentResult.intent === 'SALE' && intentResult.product) {
-    let searchTerm = intentResult.product;
-    if (searchTerm.endsWith('s') && searchTerm.length > 3) searchTerm = searchTerm.slice(0, -1);
+  // --- FLUJO DE VENTA (MULTI_SALE) ---
+  if (intentResult.intent === 'MULTI_SALE' && intentResult.items?.length > 0) {
+    let total = 0;
+    const foundItems = [];
+    const notFound = [];
 
-    // Búsqueda
-    const { data: fuzzy } = await supabase.rpc('fuzzy_search_products', {
-      search_text: searchTerm,
-      store_id_param: storeId,
-      similarity_threshold: 0.15
-    });
+    for (const item of intentResult.items) {
+      let searchTerm = item.product;
+      if (searchTerm.endsWith('s') && searchTerm.length > 3) searchTerm = searchTerm.slice(0, -1);
 
-    let bestMatch = fuzzy && fuzzy.length > 0 ? fuzzy[0] : null;
-    if (!bestMatch) {
-      const { data: ilikeProds } = await supabase.from('products').select('id, name, base_price').eq('store_id', storeId).eq('is_active', true).ilike('name', `%${searchTerm}%`).limit(1);
-      if (ilikeProds && ilikeProds.length > 0) bestMatch = { ...ilikeProds[0], similarity: 0.5 };
+      const { data: fuzzy } = await supabase.rpc('fuzzy_search_products', {
+        search_text: searchTerm,
+        store_id_param: storeId,
+        similarity_threshold: 0.15
+      });
+
+      let bestMatch = fuzzy && fuzzy.length > 0 ? fuzzy[0] : null;
+      if (!bestMatch) {
+        const { data: ilikeProds } = await supabase.from('products').select('id, name, base_price').eq('store_id', storeId).eq('is_active', true).ilike('name', `%${searchTerm}%`).limit(1);
+        if (ilikeProds && ilikeProds.length > 0) bestMatch = { ...ilikeProds[0], similarity: 0.5 };
+      }
+
+      if (bestMatch && bestMatch.similarity > 0.3) {
+        const lineTotal = item.qty * (bestMatch.base_price || 0);
+        total += lineTotal;
+        foundItems.push({
+          productId: bestMatch.id,
+          productName: bestMatch.name,
+          qty: item.qty,
+          price: bestMatch.base_price,
+          lineTotal
+        });
+      } else {
+        notFound.push(item.product);
+      }
     }
 
-    if (bestMatch && bestMatch.similarity > 0.3) {
-      const total = intentResult.qty * (bestMatch.base_price || 0);
-      return {
-        responseText: Templates.Sales.saleConfirmation(intentResult.qty, bestMatch.name, total),
-        nextStep: 'awaiting_sale_confirmation',
-        metadata: { 
-          productId: bestMatch.id, 
-          productName: bestMatch.name, 
-          newName: intentResult.product, // Guardamos el nombre original por si acaso
-          qty: intentResult.qty, 
-          price: bestMatch.base_price, 
-          total 
-        }
-      };
+    if (foundItems.length === 0) {
+      return { responseText: Templates.Sales.saleProductNotFound(notFound.join(', ')) };
     }
 
-    return { responseText: Templates.Sales.saleProductNotFound(intentResult.product) };
+    let responseText = '';
+    if (notFound.length > 0) {
+      responseText += `⚠️ No encontré: ${notFound.join(', ')}\n\n`;
+    }
+
+    if (foundItems.length === 1) {
+      responseText += Templates.Sales.saleConfirmation(foundItems[0].qty, foundItems[0].productName, total);
+    } else {
+      const list = foundItems.map(i => `• ${i.qty}x ${i.productName} ($${i.lineTotal})`).join('\n');
+      responseText += `🧾 *Resumen de Venta*\n\n${list}\n\n*Total:* $${total}\n\n¿Confirmas esta venta?`;
+    }
+
+    return {
+      responseText,
+      nextStep: 'awaiting_sale_confirmation',
+      metadata: { 
+        items: foundItems,
+        total
+      }
+    };
   }
 
   // --- COMANDOS ADMINISTRATIVOS ---
