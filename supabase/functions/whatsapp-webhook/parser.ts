@@ -114,6 +114,15 @@ export async function handleCommand(
 
       // Si no hay suggestedId, es un producto NUEVO que estamos registrando tras un fallo de búsqueda
       if (!metadata.suggestedId) {
+        // Si el usuario no especificó cantidad (o dijo "1"), mejor le preguntamos explícitamente
+        if (metadata.pendingQty === 1) {
+          return {
+            responseText: Templates.Onboarding.firstProductQtyPrompt(metadata.newName),
+            nextStep: 'awaiting_new_product_price',
+            metadata: { newName: metadata.newName, pendingQty: 0 } // Forzamos 0 para que el siguiente paso sepa que el número recibido es la cantidad
+          };
+        }
+        
         return {
           responseText: Templates.Inventory.newProductFallback(metadata.newName),
           nextStep: 'awaiting_new_product_price',
