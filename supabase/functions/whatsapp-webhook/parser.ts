@@ -13,6 +13,7 @@ export function detectIntent(text: string): any {
   // 1. Comandos Administrativos (Prioridad Máxima)
   if (['hola', 'hi', 'buenas', 'buenos dias', 'buenas tardes', 'buen dia', 'buenas noches', 'hello'].includes(s)) return { intent: 'GREETING' };
   if (s === 'inventario' || s === 'stock') return { intent: 'GET_INVENTORY' };
+  if (['agregar', 'nuevo', 'agregar producto', 'nuevo producto', 'añadir', 'surtir', 'surtido'].includes(s)) return { intent: 'ADD_PRODUCT' };
   if (s === 'ayuda' || s === 'help' || s === 'comandos' || s === '?') return { intent: 'HELP' };
   if (s === 'link' || s === 'enlace' || s === 'panel') return { intent: 'GET_LINK' };
   if (s === 'cambiar' || s === 'sucursal' || s === 'tienda') return { intent: 'SWITCH_STORE' };
@@ -37,7 +38,7 @@ export function detectIntent(text: string): any {
   }
 
   // 3. Ventas y Surtidos
-  const restockKeywords = ['llegaron', 'llego', 'llegó', 'trajeron', 'trajo', 'resurtir', 'recibi', 'recibí', 'surtido', 'entrada'];
+  const restockKeywords = ['llegaron', 'llego', 'llegó', 'trajeron', 'trajo', 'resurtir', 'recibi', 'recibí', 'surtido', 'surtir', 'entrada', 'agrega', 'agregar', 'añadir', 'añade', 'meter', 'mete'];
   const saleKeywords = ['vendi', 'vendí', 'vender', 'venta', 'sale', 'dame', 'ponme', 'despacha'];
   
   const isRestock = restockKeywords.some(k => s.includes(k));
@@ -395,6 +396,13 @@ export async function handleCommand(
 
   if (intentResult.intent === 'GREETING') {
     return { responseText: Templates.Global.greeting };
+  }
+
+  if (intentResult.intent === 'ADD_PRODUCT') {
+    return {
+      responseText: Templates.Onboarding.firstProductPrompt,
+      nextStep: 'awaiting_first_product_name'
+    };
   }
 
   // --- FLUJO DE ABONOS ---
