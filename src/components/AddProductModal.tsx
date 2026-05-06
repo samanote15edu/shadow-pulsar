@@ -20,7 +20,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAd
     if (!name || !stock || !price) return;
     onAdd({
       name,
-      stock: parseInt(stock, 10),
+      stock: parseFloat(stock),
       price: parseFloat(price),
       cost: parseFloat(cost) || 0,
       unit_of_measure: unit

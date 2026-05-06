@@ -45,7 +45,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({ isOpen, onClose, pr
         .from('products')
         .update({
           name,
-          current_stock: parseInt(stock, 10),
+          current_stock: parseFloat(stock),
           base_price: parseFloat(price),
           last_cost_price: parseFloat(cost),
           unit_of_measure: unit

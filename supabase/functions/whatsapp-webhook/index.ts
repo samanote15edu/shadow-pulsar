@@ -90,7 +90,8 @@ serve(async (req) => {
             name: meta.name,
             base_price: meta.price,
             last_cost_price: meta.cost,
-            current_stock: meta.qty
+            current_stock: meta.qty,
+            unit_of_measure: meta.unit || 'pza'
           }).select('id').single();
           if (newProd && meta.qty > 0) {
             await supabase.from('transactions').insert({ 

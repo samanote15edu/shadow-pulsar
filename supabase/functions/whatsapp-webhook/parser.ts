@@ -44,8 +44,8 @@ export function detectIntent(text: string): any {
   const isRestock = restockKeywords.some(k => s.includes(k));
   const isSale = saleKeywords.some(k => s.includes(k)) || /^\d+/.test(s);
   
-  const qtyMatch = s.match(/(\d+)/);
-  const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
+  const qtyMatch = s.match(/(\d+(\.\d+)?)/);
+  const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
 
   if (isRestock) {
     let product = s;
@@ -59,11 +59,11 @@ export function detectIntent(text: string): any {
     saleKeywords.forEach(k => cleanS = cleanS.replace(new RegExp(`\\b${k}\\b`, 'gi'), ''));
     cleanS = cleanS.replace(/,|\s+y\s+|\s+con\s+/gi, ' ').trim();
     
-    const segments = cleanS.split(/(?=\b\d+\s+)/).filter(Boolean);
+    const segments = cleanS.split(/(?=\b\d+(?:\.\d+)?\s+)/).filter(Boolean);
     const items = segments.map(seg => {
-       const qtyMatch = seg.match(/^(\d+)/);
-       const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
-       const product = seg.replace(/^\d+/, '').trim();
+       const qtyMatch = seg.match(/^(\d+(\.\d+)?)/);
+       const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
+       const product = seg.replace(/^(\d+(\.\d+)?)/, '').trim();
        return { qty, product };
     }).filter(i => i.product.length > 0);
 
@@ -126,19 +126,10 @@ export async function handleCommand(
 
       // Si no hay suggestedId, es un producto NUEVO que estamos registrando tras un fallo de búsqueda
       if (!metadata.suggestedId) {
-        // Si el usuario no especificó cantidad (o dijo "1"), mejor le preguntamos explícitamente
-        if (metadata.pendingQty === 1) {
-          return {
-            responseText: Templates.Onboarding.firstProductQtyPrompt(metadata.newName),
-            nextStep: 'awaiting_new_product_price',
-            metadata: { newName: metadata.newName, pendingQty: 0 } // Forzamos 0 para que el siguiente paso sepa que el número recibido es la cantidad
-          };
-        }
-        
         return {
-          responseText: Templates.Inventory.newProductFallback(metadata.newName),
-          nextStep: 'awaiting_new_product_price',
-          metadata: { newName: metadata.newName, pendingQty: metadata.pendingQty }
+          responseText: Templates.Onboarding.firstProductUnitPrompt,
+          nextStep: 'awaiting_product_unit',
+          metadata: { newName: metadata.newName, pendingQty: metadata.pendingQty === 1 ? 0 : metadata.pendingQty }
         };
       }
 
@@ -215,9 +206,34 @@ export async function handleCommand(
 
   if (currentStep === 'awaiting_first_product_name') {
     return {
-      responseText: Templates.Onboarding.firstProductQtyPrompt(text),
-      nextStep: 'awaiting_new_product_price', // Saltamos al flujo que ya pide precio/costo
-      metadata: { newName: text, pendingQty: 0 } // El usuario enviará el stock ahora
+      responseText: Templates.Onboarding.firstProductUnitPrompt,
+      nextStep: 'awaiting_product_unit',
+      metadata: { newName: text, pendingQty: 0 }
+    };
+  }
+
+  if (currentStep === 'awaiting_product_unit') {
+    const sUnit = text.toLowerCase().trim();
+    let unit = 'pza';
+    let unitDisplay = 'unidades';
+    if (sUnit === '2' || sUnit.includes('kilo') || sUnit.includes('kg')) { unit = 'kg'; unitDisplay = 'Kilogramos (kg)'; }
+    else if (sUnit === '3' || sUnit.includes('gramo') || sUnit.includes('gr')) { unit = 'gr'; unitDisplay = 'Gramos (gr)'; }
+    else if (sUnit === '4' || sUnit.includes('litro') || sUnit.includes('lt')) { unit = 'lt'; unitDisplay = 'Litros (lt)'; }
+    else if (sUnit === '5' || sUnit.includes('caja')) { unit = 'caja'; unitDisplay = 'Cajas'; }
+    else if (sUnit === '6' || sUnit.includes('paquete')) { unit = 'paquete'; unitDisplay = 'Paquetes'; }
+
+    if (metadata.pendingQty > 0) {
+      return {
+        responseText: Templates.Onboarding.newProductPricePrompt,
+        nextStep: 'awaiting_new_product_price',
+        metadata: { ...metadata, unit }
+      };
+    }
+
+    return {
+      responseText: Templates.Onboarding.firstProductQtyPrompt(metadata.newName, unitDisplay),
+      nextStep: 'awaiting_new_product_price',
+      metadata: { ...metadata, pendingQty: 0, unit }
     };
   }
 
@@ -249,7 +265,14 @@ export async function handleCommand(
     return {
       responseText: Templates.Onboarding.productRegisteredSuccess(metadata.newName, metadata.pendingQty, metadata.price, cost),
       nextStep: 'awaiting_post_creation_action',
-      metadata: { intent: 'CREATE_PRODUCT', name: metadata.newName, price: metadata.price, cost: cost, qty: metadata.pendingQty }
+      metadata: { 
+        intent: 'CREATE_PRODUCT', 
+        name: metadata.newName, 
+        price: metadata.price, 
+        cost: cost, 
+        qty: metadata.pendingQty,
+        unit: metadata.unit || 'pza'
+      }
     };
   }
 
