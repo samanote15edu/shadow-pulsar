@@ -337,10 +337,14 @@ export async function handleCommand(
 
     let bestMatch = fuzzy && fuzzy.length > 0 ? fuzzy[0] : null;
 
-    // 2. Fallback: Búsqueda ILIKE
+    // 2. Fallback: Búsqueda ILIKE (ahora con inteligencia de desempate por longitud)
     if (!bestMatch || bestMatch.similarity < 0.3) {
-      const { data: ilikeProds } = await supabase.from('products').select('id, name').eq('store_id', storeId).eq('is_active', true).ilike('name', `%${searchTerm}%`).limit(1);
-      if (ilikeProds && ilikeProds.length > 0) bestMatch = { ...ilikeProds[0], similarity: 0.5 };
+      const { data: ilikeProds } = await supabase.from('products').select('id, name').eq('store_id', storeId).eq('is_active', true).ilike('name', `%${searchTerm}%`);
+      if (ilikeProds && ilikeProds.length > 0) {
+        // Ordenamos por cercanía de longitud para que "Frijol" gane a "Lata de frijoles"
+        const sorted = ilikeProds.sort((a, b) => Math.abs(a.name.length - searchTerm.length) - Math.abs(b.name.length - searchTerm.length));
+        bestMatch = { ...sorted[0], similarity: 0.5 };
+      }
     }
 
     if (bestMatch && bestMatch.similarity > 0.4) {
@@ -376,8 +380,12 @@ export async function handleCommand(
 
       let bestMatch = fuzzy && fuzzy.length > 0 ? fuzzy[0] : null;
       if (!bestMatch) {
-        const { data: ilikeProds } = await supabase.from('products').select('id, name, base_price').eq('store_id', storeId).eq('is_active', true).ilike('name', `%${searchTerm}%`).limit(1);
-        if (ilikeProds && ilikeProds.length > 0) bestMatch = { ...ilikeProds[0], similarity: 0.5 };
+        const { data: ilikeProds } = await supabase.from('products').select('id, name, base_price').eq('store_id', storeId).eq('is_active', true).ilike('name', `%${searchTerm}%`);
+        if (ilikeProds && ilikeProds.length > 0) {
+          // Inteligencia de desempate por longitud
+          const sorted = ilikeProds.sort((a, b) => Math.abs(a.name.length - searchTerm.length) - Math.abs(b.name.length - searchTerm.length));
+          bestMatch = { ...sorted[0], similarity: 0.5 };
+        }
       }
 
       if (bestMatch && bestMatch.similarity > 0.3) {
