@@ -58,8 +58,7 @@ export function detectIntent(text: string): any {
     let cleanS = s;
     saleKeywords.forEach(k => cleanS = cleanS.replace(new RegExp(`\\b${k}\\b`, 'gi'), ''));
     cleanS = cleanS.replace(/,|\s+y\s+|\s+con\s+/gi, ' ').trim();
-    
-    const segments = cleanS.split(/(?=\b\d+(?:\.\d+)?\s+)/).filter(Boolean);
+    const segments = cleanS.split(/(?:^|\s)(?=\d+(?:\.\d+)?\s+)/).filter(Boolean);
     const items = segments.map(seg => {
        const qtyMatch = seg.match(/^(\d+(\.\d+)?)/);
        const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
