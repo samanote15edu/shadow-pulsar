@@ -243,14 +243,14 @@ export async function handleCommand(
 
   // 1.2.1 Acción Post-Creación
   if (currentStep === 'awaiting_post_creation_action') {
-    if (s.includes('venta') || s.includes('registrar venta')) {
-      return { responseText: Templates.Onboarding.postCreationSalePrompt };
-    }
     if (s.includes('inventario') || s.includes('ver inventario')) {
       const { data: prods } = await supabase.from('products').select('name, current_stock').eq('store_id', storeId).eq('is_active', true).order('current_stock', { ascending: true }).limit(10);
       if (!prods) return { responseText: Templates.Inventory.emptyInventory };
       const list = prods.map(p => `${p.current_stock <= 0 ? '❌' : '📦'} ${p.name}: *${p.current_stock}*`).join('\n');
       return { responseText: Templates.Inventory.inventoryList(list) };
+    }
+    if (s.match(/\bventa\b/) || s.includes('registrar venta')) {
+      return { responseText: Templates.Onboarding.postCreationSalePrompt };
     }
     if (s.includes('agregar') || s.includes('otro producto')) {
       return {
