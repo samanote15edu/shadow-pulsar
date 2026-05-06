@@ -48,7 +48,7 @@ serve(async (req) => {
       if (!profile) {
         const { data: newUser } = await supabase.from('profiles').insert({ 
           whatsapp_number: from, 
-          role: 'owner',
+          role: 'employee', // Por defecto empleado hasta que valide código
           full_name: 'Usuario'
         }).select().single();
         profile = newUser;
@@ -77,7 +77,16 @@ serve(async (req) => {
           if (storeError) {
              await sendWhatsAppMessage(from, Templates.Global.errorDb(storeError.message));
           } else if (newStore) {
-             await supabase.from('profiles').update({ store_id: newStore.id }).eq('id', profile.id);
+             await supabase.from('profiles').update({ store_id: newStore.id, role: 'owner' }).eq('id', profile.id);
+             
+             // Si se usó un código de invitación, incrementamos su uso
+             if (meta.inviteCode) {
+               const { data: codeData } = await supabase.from('invite_codes').select('current_uses').eq('code', meta.inviteCode).single();
+               if (codeData) {
+                 await supabase.from('invite_codes').update({ current_uses: (codeData.current_uses || 0) + 1 }).eq('code', meta.inviteCode);
+               }
+             }
+
              // Enviamos el mensaje de éxito y la invitación a añadir el primer producto
              await sendWhatsAppMessage(from, Templates.Onboarding.storeCreatedSuccess(newStore.name));
           }

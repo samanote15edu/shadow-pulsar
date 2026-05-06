@@ -107,6 +107,26 @@ export async function handleCommand(
     };
   }
 
+  // 0.1 Flujo de Invitación Inicial (Portero)
+  if (!storeId && !currentStep) {
+    return {
+      responseText: Templates.Onboarding.welcomeInvite,
+      nextStep: 'awaiting_invite_code'
+    };
+  }
+
+  if (currentStep === 'awaiting_invite_code') {
+    const { data: code } = await supabase.from('invite_codes').select('*').eq('code', text.trim().toUpperCase()).eq('is_active', true).maybeSingle();
+    if (code && code.current_uses < code.max_uses) {
+      return {
+        responseText: Templates.Onboarding.inviteAccepted,
+        nextStep: 'awaiting_new_store_name',
+        metadata: { inviteCode: code.code }
+      };
+    }
+    return { responseText: Templates.Onboarding.invalidInvite, nextStep: 'awaiting_invite_code' };
+  }
+
   // 1. MANEJAR RESPUESTAS A PREGUNTAS (ESTADOS)
   if (currentStep === 'awaiting_similarity_confirmation' || currentStep === 'awaiting_sale_confirmation' || currentStep === 'awaiting_new_store_confirmation') {
     if (isPositive(s)) {
