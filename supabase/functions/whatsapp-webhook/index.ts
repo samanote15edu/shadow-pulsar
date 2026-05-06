@@ -83,6 +83,100 @@ serve(async (req) => {
           }
         }
 
+        // 2. CREACIÓN DE PRODUCTOS
+        if (meta?.intent === 'CREATE_PRODUCT') {
+          const { data: newProd } = await supabase.from('products').insert({
+            store_id: profile.store_id,
+            name: meta.name,
+            base_price: meta.price,
+            last_cost_price: meta.cost,
+            current_stock: meta.qty
+          }).select('id').single();
+          if (newProd && meta.qty > 0) {
+            await supabase.from('transactions').insert({ 
+              store_id: profile.store_id, 
+              product_id: newProd.id, 
+              type: 'restock', 
+              quantity_change: meta.qty, 
+              unit_price: meta.cost 
+            });
+          }
+        }
+
+        // 3. RESURTIDOS
+        if (!convRes.nextStep && meta?.intent === 'RESTOCK') {
+          await supabase.rpc('increment_stock', { row_id: meta.productId, amount: meta.qty });
+          await supabase.from('transactions').insert({ 
+            store_id: profile.store_id, 
+            product_id: meta.productId, 
+            type: 'restock', 
+            quantity_change: meta.qty 
+          });
+        }
+
+        // 4. VENTAS
+        if (!convRes.nextStep && meta?.intent === 'PROCESS_SALE') {
+          await supabase.rpc('increment_stock', { row_id: meta.productId, amount: -meta.qty });
+          await supabase.from('transactions').insert({
+            store_id: profile.store_id,
+            product_id: meta.productId,
+            type: 'sale',
+            quantity_change: -meta.qty,
+            total_amount: meta.total,
+            amount_received: meta.amountReceived || meta.total
+          });
+          
+          if (meta.debt && meta.debt > 0 && meta.customerName) {
+            const { data: ledger } = await supabase.from('fiado_ledgers').select('*').eq('store_id', profile.store_id).ilike('customer_name', `%${meta.customerName}%`).maybeSingle();
+            if (ledger) {
+              await supabase.from('fiado_ledgers').update({ current_balance: ledger.current_balance + meta.debt }).eq('id', ledger.id);
+            } else {
+              await supabase.from('fiado_ledgers').insert({ store_id: profile.store_id, customer_name: meta.customerName, current_balance: meta.debt });
+            }
+          }
+        }
+
+        // 5. ABONOS
+        if (!convRes.nextStep && meta?.intent === 'PROCESS_ABONO') {
+          await supabase.from('transactions').insert({
+            store_id: profile.store_id,
+            type: 'fiado_payment',
+            quantity_change: 0,
+            total_amount: meta.amount,
+            amount_received: meta.amount,
+            notes: `Abono de ${meta.customerName}`
+          });
+          const { data: ledger } = await supabase.from('fiado_ledgers').select('current_balance').eq('id', meta.customerId).single();
+          if (ledger) {
+            await supabase.from('fiado_ledgers').update({ current_balance: ledger.current_balance - meta.amount }).eq('id', meta.customerId);
+          }
+        }
+
+        // 6. CORTE DE CAJA
+        if (!convRes.nextStep && meta?.intent === 'PROCESS_CORTE') {
+          await supabase.from('cash_snapshots').insert({
+            store_id: profile.store_id,
+            started_at: meta.since,
+            expected_cash: meta.expected,
+            actual_cash: meta.physical,
+            status: 'closed'
+          });
+        }
+
+        // 7. ANULACIONES
+        if (!convRes.nextStep && meta?.intent === 'PROCESS_VOID') {
+          await supabase.from('transactions').update({ is_voided: true }).eq('id', meta.transactionId);
+          await supabase.rpc('increment_stock', { row_id: meta.productId, amount: meta.qty });
+          await supabase.from('transactions').insert({ 
+            store_id: profile.store_id, 
+            product_id: meta.productId, 
+            type: 'void', 
+            quantity_change: meta.qty, 
+            notes: `Anulación de venta ID: ${meta.transactionId}` 
+          });
+        }
+
+        // 8. VINCULACIÓN DE DUEÑO
         if (!convRes.nextStep && meta?.intent === 'LINK_OWNER_CONFIRMED') {
           await supabase.from('stores').update({ owner_id: profile.id }).eq('id', meta.storeId);
           await supabase.from('profiles').update({ store_id: meta.storeId }).eq('id', profile.id);
