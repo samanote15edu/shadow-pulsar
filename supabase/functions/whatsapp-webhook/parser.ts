@@ -79,7 +79,10 @@ export function detectIntent(text: string): any {
        return { qty, product };
     }).filter(i => i.product.length > 0);
 
-    if (items.length > 0) return { intent: 'MULTI_SALE', items };
+    const creditKeywords = ['fiado', 'fie', 'fiamos', 'fiale', 'debe', 'deber', 'deve', 'dever', 'llebaron', 'llevaron', 'fiao'];
+    const isCredit = creditKeywords.some(k => s.includes(k));
+
+    if (items.length > 0) return { intent: 'MULTI_SALE', items, isCredit };
   }
 
   return { intent: 'UNKNOWN' };
@@ -102,7 +105,7 @@ export async function handleCommand(
   };
   const isNegative = (text: string) => {
     const clean = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').trim();
-    return ['no', 'n', 'cancelar', 'parar', 'reset', 'nel', 'nop', 'never', 'not', 'ni madres', 'nones'].includes(clean);
+    return ['no', 'n', 'cancelar', 'parar', 'reset', 'nel', 'nop', 'never', 'not', 'ni madres', 'nones', 'fiado', 'debe', 'deve', 'fio'].includes(clean);
   };
 
   // --- PRIORIDAD 1: COMANDOS VIP (Vía Rápida) ---
@@ -146,9 +149,10 @@ export async function handleCommand(
   }
 
   // 1.2 Confirmaciones Generales
-  if (currentStep === 'awaiting_similarity_confirmation' || currentStep === 'awaiting_sale_confirmation' || currentStep === 'awaiting_new_store_confirmation') {
+  if (currentStep === 'awaiting_similarity_confirmation' || currentStep === 'awaiting_sale_confirmation' || currentStep === 'awaiting_new_store_confirmation' || currentStep === 'awaiting_debtor_name_direct') {
     if (isPositive(s)) {
       if (currentStep === 'awaiting_sale_confirmation') return { responseText: Templates.Sales.saleConfirmedPaymentChoice(metadata.total), nextStep: 'awaiting_payment_choice', metadata };
+      if (currentStep === 'awaiting_debtor_name_direct') return { responseText: Templates.Sales.debtRemainingPrompt(metadata.total), nextStep: 'awaiting_debtor_name', metadata: { ...metadata, amountReceived: 0, debt: metadata.total } };
       if (currentStep === 'awaiting_new_store_confirmation') return { responseText: Templates.Onboarding.storeCreatedProcessing(metadata.newStoreName), nextStep: 'awaiting_first_product_choice', metadata: { intent: 'CREATE_NEW_BRANCH', name: metadata.newStoreName } };
       
       if (!metadata.suggestedId) {
@@ -405,6 +409,10 @@ export async function handleCommand(
     } else {
       const list = foundItems.map(i => `• ${i.qty}x ${i.productName} ($${i.lineTotal})`).join('\n');
       responseText = `🧾 *Resumen de Venta*\n\n${list}\n\n*Total:* *$${total}*\n\n¿Confirmas esta venta?`;
+    }
+
+    if (intentResult.isCredit) {
+      return { responseText, nextStep: 'awaiting_debtor_name_direct', metadata: { items: foundItems, total, isCredit: true } };
     }
 
     return { responseText, nextStep: 'awaiting_sale_confirmation', metadata: { items: foundItems, total } };
