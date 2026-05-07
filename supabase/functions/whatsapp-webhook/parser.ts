@@ -337,7 +337,17 @@ export async function handleCommand(
       const { data: p } = await supabase.from('products').select('id, name, base_price').eq('store_id', storeId).ilike('name', `%${item.product}%`).limit(1).maybeSingle();
       if (p) { total += item.qty * p.base_price; foundItems.push({ productId: p.id, productName: p.name, qty: item.qty, price: p.base_price, lineTotal: item.qty * p.base_price }); }
     }
-    if (foundItems.length > 0) return { responseText: Templates.Sales.saleConfirmation(foundItems[0].qty, foundItems[0].productName, total), nextStep: 'awaiting_sale_confirmation', metadata: { items: foundItems, total } };
+    if (foundItems.length === 0) return { responseText: "❌ No encontré esos productos." };
+    
+    let responseText = '';
+    if (foundItems.length === 1) {
+      responseText = Templates.Sales.saleConfirmation(foundItems[0].qty, foundItems[0].productName, total);
+    } else {
+      const list = foundItems.map(i => `• ${i.qty}x ${i.productName} ($${i.lineTotal})`).join('\n');
+      responseText = `🧾 *Resumen de Venta*\n\n${list}\n\n*Total:* *$${total}*\n\n¿Confirmas esta venta?`;
+    }
+
+    return { responseText, nextStep: 'awaiting_sale_confirmation', metadata: { items: foundItems, total } };
   }
 
   if (intentResult.intent === 'GET_LINK') {
