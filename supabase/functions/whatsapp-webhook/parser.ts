@@ -322,21 +322,70 @@ export async function handleCommand(
   if (intentResult.intent === 'ADD_PRODUCT') return { responseText: Templates.Onboarding.firstProductPrompt, nextStep: 'awaiting_first_product_name' };
 
   if (intentResult.intent === 'RESTOCK' && intentResult.product) {
-    let searchTerm = intentResult.product; if (searchTerm.endsWith('s') && searchTerm.length > 3) searchTerm = searchTerm.slice(0, -1);
-    const { data: ilikeProds } = await supabase.from('products').select('id, name').eq('store_id', storeId).eq('is_active', true).ilike('name', `%${searchTerm}%`);
-    if (ilikeProds && ilikeProds.length > 0) {
-      const sorted = ilikeProds.sort((a, b) => Math.abs(a.name.length - searchTerm.length) - Math.abs(b.name.length - searchTerm.length));
-      return { responseText: Templates.Inventory.restockConfirmation(intentResult.qty, sorted[0].name), nextStep: 'awaiting_similarity_confirmation', metadata: { suggestedId: sorted[0].id, suggestedName: sorted[0].name, pendingQty: intentResult.qty, newName: intentResult.product } };
+    let searchTerm = intentResult.product;
+    if (searchTerm.endsWith('s') && searchTerm.length > 3) searchTerm = searchTerm.slice(0, -1);
+
+    // 1. Búsqueda Difusa (RPC)
+    const { data: fuzzy } = await supabase.rpc('fuzzy_search_products', {
+      search_text: searchTerm,
+      store_id_param: storeId,
+      similarity_threshold: 0.15
+    });
+
+    let bestMatch = fuzzy && fuzzy.length > 0 ? fuzzy[0] : null;
+
+    // 2. Fallback: Búsqueda ILIKE con desempate por longitud
+    if (!bestMatch || bestMatch.similarity < 0.3) {
+      const { data: ilikeProds } = await supabase.from('products').select('id, name').eq('store_id', storeId).eq('is_active', true).ilike('name', `%${searchTerm}%`);
+      if (ilikeProds && ilikeProds.length > 0) {
+        const sorted = ilikeProds.sort((a, b) => Math.abs(a.name.length - searchTerm.length) - Math.abs(b.name.length - searchTerm.length));
+        bestMatch = { ...sorted[0], similarity: 0.5 };
+      }
     }
-    return { responseText: Templates.Inventory.productNotFound(intentResult.product), nextStep: 'awaiting_similarity_confirmation', metadata: { newName: intentResult.product, pendingQty: intentResult.qty } };
+
+    if (bestMatch && bestMatch.similarity > 0.4) {
+      return {
+        responseText: Templates.Inventory.restockConfirmation(intentResult.qty, bestMatch.name),
+        nextStep: 'awaiting_similarity_confirmation',
+        metadata: { suggestedId: bestMatch.id, suggestedName: bestMatch.name, pendingQty: intentResult.qty, newName: intentResult.product }
+      };
+    }
+
+    return {
+      responseText: Templates.Inventory.productNotFound(intentResult.product),
+      nextStep: 'awaiting_similarity_confirmation',
+      metadata: { newName: intentResult.product, pendingQty: intentResult.qty }
+    };
   }
 
   if (intentResult.intent === 'MULTI_SALE' && intentResult.items?.length > 0) {
     let total = 0; const foundItems = [];
     for (const item of intentResult.items) {
-      const { data: p } = await supabase.from('products').select('id, name, base_price').eq('store_id', storeId).ilike('name', `%${item.product}%`).limit(1).maybeSingle();
-      if (p) { total += item.qty * p.base_price; foundItems.push({ productId: p.id, productName: p.name, qty: item.qty, price: p.base_price, lineTotal: item.qty * p.base_price }); }
+      let searchTerm = item.product;
+      if (searchTerm.endsWith('s') && searchTerm.length > 3) searchTerm = searchTerm.slice(0, -1);
+
+      // Búsqueda inteligente (Fuzzy + ILIKE Fallback)
+      const { data: fuzzy } = await supabase.rpc('fuzzy_search_products', {
+        search_text: searchTerm,
+        store_id_param: storeId,
+        similarity_threshold: 0.15
+      });
+
+      let bestMatch = fuzzy && fuzzy.length > 0 ? fuzzy[0] : null;
+      if (!bestMatch || bestMatch.similarity < 0.3) {
+        const { data: ilikeProds } = await supabase.from('products').select('id, name, base_price').eq('store_id', storeId).eq('is_active', true).ilike('name', `%${searchTerm}%`);
+        if (ilikeProds && ilikeProds.length > 0) {
+          const sorted = ilikeProds.sort((a, b) => Math.abs(a.name.length - searchTerm.length) - Math.abs(b.name.length - searchTerm.length));
+          bestMatch = { ...sorted[0], base_price: sorted[0].base_price, similarity: 0.5 };
+        }
+      }
+
+      if (bestMatch) { 
+        total += item.qty * bestMatch.base_price; 
+        foundItems.push({ productId: bestMatch.id, productName: bestMatch.name, qty: item.qty, price: bestMatch.base_price, lineTotal: item.qty * bestMatch.base_price }); 
+      }
     }
+    
     if (foundItems.length === 0) return { responseText: "❌ No encontré esos productos." };
     
     let responseText = '';
