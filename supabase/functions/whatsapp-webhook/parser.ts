@@ -51,7 +51,7 @@ export function detectIntent(text: string): any {
 
   // 3. Ventas y Surtidos
   const restockKeywords = ['llegaron', 'llego', 'llegó', 'trajeron', 'trajo', 'resurtir', 'recibi', 'recibí', 'surtido', 'surtir', 'entrada', 'agrega', 'agregar', 'añadir', 'añade', 'meter', 'mete'];
-  const saleKeywords = ['vendi', 'vendí', 'vender', 'venta', 'sale', 'dame', 'ponme', 'despacha'];
+  const saleKeywords = ['vendi', 'vendí', 'vender', 'venta', 'sale', 'dame', 'ponme', 'despacha', 'compraron', 'llevaron', 'se llevaron', 'llevo', 'llevó', 'salio', 'salieron'];
   
   const isRestock = restockKeywords.some(k => s.includes(k));
   const isSale = saleKeywords.some(k => s.includes(k)) || /^\d+/.test(s);
