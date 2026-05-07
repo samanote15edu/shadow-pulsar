@@ -21,6 +21,7 @@ export function detectIntent(text: string): any {
   if (s === 'cierre' || s === 'corte' || s === 'caja') return { intent: 'CASH_CLOSE' };
   if (s.includes('anular') || s.includes('borrar venta')) return { intent: 'VOID_SALE' };
   if (s === 'auditoria' || s === 'revisar stock') return { intent: 'AUDIT_INVENTORY' };
+  if (['editar', 'deshacer', 'corregir', 'cambiar ultimo'].includes(s)) return { intent: 'EDIT_LAST' };
 
   if (s.startsWith('vincular')) {
     const storeName = s.replace('vincular', '').trim();
@@ -637,6 +638,55 @@ export async function handleCommand(
     } else {
       return { responseText: Templates.Admin.auditFinished };
     }
+  }
+
+  // --- FLUJO DE EDICIÓN (DESHACER/CORREGIR) ---
+  if (intentResult.intent === 'EDIT_LAST') {
+    const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: lastProd } = await supabase.from('products')
+      .select('*')
+      .eq('store_id', storeId)
+      .gt('created_at', tenMinsAgo)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!lastProd) return { responseText: Templates.Admin.editLastNotFound };
+
+    return {
+      responseText: Templates.Admin.editLastPrompt(lastProd.name),
+      nextStep: 'awaiting_edit_selection',
+      metadata: { editProdId: lastProd.id, editProdName: lastProd.name }
+    };
+  }
+
+  if (currentStep === 'awaiting_edit_selection') {
+    if (s === '1' || s.includes('nombre')) {
+      return { responseText: Templates.Admin.editNamePrompt(metadata.editProdName), nextStep: 'awaiting_edit_name', metadata };
+    }
+    if (s === '2' || s.includes('precio')) {
+      return { responseText: Templates.Admin.editPricePrompt(metadata.editProdName), nextStep: 'awaiting_edit_price', metadata };
+    }
+    if (s === '3' || s.includes('costo')) {
+      return { responseText: Templates.Admin.editCostPrompt(metadata.editProdName), nextStep: 'awaiting_edit_cost', metadata };
+    }
+    return { responseText: "⚠️ Elige una opción (1, 2 o 3) o escribe 'Salir'." };
+  }
+
+  if (currentStep === 'awaiting_edit_name') {
+    const newName = text.trim();
+    if (newName.length < 2) return { responseText: "⚠️ Nombre muy corto." };
+    await supabase.from('products').update({ name: newName }).eq('id', metadata.editProdId);
+    return { responseText: Templates.Admin.editSuccess };
+  }
+
+  if (currentStep === 'awaiting_edit_price' || currentStep === 'awaiting_edit_cost') {
+    const val = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(val)) return { responseText: Templates.Global.invalidNumber };
+    
+    const field = currentStep === 'awaiting_edit_price' ? 'base_price' : 'last_cost_price';
+    await supabase.from('products').update({ [field]: val }).eq('id', metadata.editProdId);
+    return { responseText: Templates.Admin.editSuccess };
   }
 
   // --- FLUJO DE VINCULACIÓN ---

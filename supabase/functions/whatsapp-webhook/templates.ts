@@ -89,6 +89,13 @@ export const Templates = {
     linkStoreConfirmation: (name: string) => `🔗 ¿Confirmas que quieres ser el dueño de **${name}**? (Esto sobreescribirá el dueño actual si existe)`,
     linkStoreSuccess: (name: string) => `✅ ¡Vinculación exitosa! Refresca el panel para ver **${name}**.`,
     linkStoreProfileNotFound: "❌ No pude encontrar tu perfil de usuario.",
-    linkStoreConfirmedOwner: (name: string) => `✅ Ahora eres el dueño oficial de *${name}*.`
+    linkStoreConfirmedOwner: (name: string) => `✅ Ahora eres el dueño oficial de *${name}*.`,
+    
+    editLastPrompt: (name: string) => `🔧 *Corregir Última Acción*\n\n¿Qué quieres corregir del producto **"${name}"**?\n\n1️⃣ Nombre\n2️⃣ Precio de Venta\n3️⃣ Costo`,
+    editLastNotFound: "🔍 No encontré ninguna acción reciente (en los últimos 10 min) que se pueda editar.",
+    editNamePrompt: (old: string) => `✍️ ¿Cuál es el nombre correcto para **"${old}"**?`,
+    editPricePrompt: (name: string) => `💰 ¿Cuál es el nuevo **precio de venta** para "${name}"?`,
+    editCostPrompt: (name: string) => `💰 ¿Cuál es el nuevo **costo** para "${name}"?`,
+    editSuccess: "✅ ¡Cambio realizado con éxito! Ya puedes verlo reflejado en tu inventario."
   }
 };
