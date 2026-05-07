@@ -8,7 +8,18 @@ export interface CommandResponse {
 }
 
 export function detectIntent(text: string): any {
-  const s = text.toLowerCase().trim();
+  let s = text.toLowerCase().trim();
+
+  // 0. Limpieza Quirúrgica de Relleno (Naturalidad)
+  const fillers = ['oye', 'porfa', 'por favor', 'anotame', 'anota', 'registra', 'apunta', 'apuntame', 'pon', 'ponme', 'agrega', 'agregame', 'puse', 'metele', 'mete'];
+  fillers.forEach(f => {
+    s = s.replace(new RegExp(`^${f}\\b\\s*`, 'gi'), ''); // Al inicio
+    s = s.replace(new RegExp(`\\s*${f}\\b`, 'gi'), '');   // En medio o final
+  });
+
+  // Manejo de Fracciones Naturales
+  s = s.replace(/\bmedio\b/g, '0.5');
+  s = s.replace(/\bcuarto\b/g, '0.25');
 
   // 1. Comandos Administrativos
   if (['hola', 'hi', 'buenas', 'buenos dias', 'buenas tardes', 'buen dia', 'buenas noches', 'hello'].includes(s)) return { intent: 'GREETING' };
