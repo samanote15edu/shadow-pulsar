@@ -101,14 +101,51 @@ export async function handleCommand(
 
   // 0. COMANDO GLOBAL: SALIR
   if (isNegative(s) && !currentStep) {
+    return { responseText: Templates.Global.cancel, nextStep: undefined, metadata: {} };
+  }
+
+  // --- PRIORIDAD 1: DETECTAR INTENCIÓN GLOBAL ---
+  // Esto permite que comandos como "Editar", "Inventario" o "Ayuda" funcionen siempre,
+  // incluso si el bot está esperando una respuesta de un paso anterior.
+  const intentResult = detectIntent(text);
+
+  if (intentResult.intent === 'HELP') return { responseText: Templates.Global.help };
+  if (intentResult.intent === 'GREETING') return { responseText: Templates.Global.greeting };
+  
+  if (intentResult.intent === 'EDIT_LAST') {
+    const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: lastProd } = await supabase.from('products').select('*').eq('store_id', storeId).gt('created_at', tenMinsAgo).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (!lastProd) return { responseText: Templates.Admin.editLastNotFound };
     return {
-      responseText: Templates.Global.cancel,
-      nextStep: undefined,
-      metadata: {}
+      responseText: Templates.Admin.editLastPrompt(lastProd.name),
+      nextStep: 'awaiting_edit_selection',
+      metadata: { editProdId: lastProd.id, editProdName: lastProd.name }
     };
   }
 
-  // 0.1 Flujo de Invitación Inicial (Portero)
+  if (intentResult.intent === 'GET_INVENTORY') {
+    const { data: prods } = await supabase.from('products').select('name, current_stock').eq('store_id', storeId).eq('is_active', true).order('current_stock', { ascending: true }).limit(10);
+    if (!prods) return { responseText: Templates.Inventory.emptyInventory };
+    const list = prods.map(p => `${p.current_stock <= 0 ? '❌' : '📦'} ${p.name}: *${p.current_stock}*`).join('\n');
+    return { responseText: Templates.Inventory.inventoryList(list) };
+  }
+
+  if (intentResult.intent === 'GET_LINK') {
+    const { data: user } = await supabase.from('profiles').select('id').eq('store_id', storeId).maybeSingle();
+    return { responseText: Templates.Global.dashboardLink(storeId, user?.id || '') };
+  }
+
+  if (intentResult.intent === 'SWITCH_STORE') {
+    const { data: stores } = await supabase.from('stores').select('id, name').eq('owner_id', (await supabase.from('profiles').select('id').eq('store_id', storeId).single()).data?.id);
+    // Nota: La lógica de switch es más compleja, mejor dejarla abajo o simplificarla aquí.
+    // Para mantenerlo quirúrgico, solo prioricé los más críticos arriba.
+  }
+
+  if (intentResult.intent === 'ADD_PRODUCT') {
+    return { responseText: Templates.Onboarding.firstProductPrompt, nextStep: 'awaiting_first_product_name' };
+  }
+
+  // --- PRIORIDAD 2: MANEJAR ESTADOS CONVERSACIONALES ---
   if (!storeId && !currentStep) {
     return {
       responseText: Templates.Onboarding.welcomeInvite,
@@ -483,27 +520,10 @@ export async function handleCommand(
     };
   }
 
-  if (intentResult.intent === 'GET_INVENTORY') {
-    const { data: prods } = await supabase.from('products').select('name, current_stock').eq('store_id', storeId).eq('is_active', true).order('current_stock', { ascending: true }).limit(10);
-    if (!prods) return { responseText: Templates.Inventory.emptyInventory };
-    const list = prods.map(p => `${p.current_stock <= 0 ? '❌' : '📦'} ${p.name}: *${p.current_stock}*`).join('\n');
-    return { responseText: Templates.Inventory.inventoryList(list) };
-  }
-
-  if (intentResult.intent === 'HELP') {
-    return { responseText: Templates.Global.help };
-  }
-
-  if (intentResult.intent === 'GREETING') {
-    return { responseText: Templates.Global.greeting };
-  }
-
-  if (intentResult.intent === 'ADD_PRODUCT') {
-    return {
-      responseText: Templates.Onboarding.firstProductPrompt,
-      nextStep: 'awaiting_first_product_name'
-    };
-  }
+  // (GET_INVENTORY ya se maneja arriba)
+  // (HELP ya se maneja arriba)
+  // (GREETING ya se maneja arriba)
+  // (ADD_PRODUCT ya se maneja arriba)
 
   // --- FLUJO DE ABONOS ---
   if (intentResult.intent === 'PAYMENT_LEDGER') {
