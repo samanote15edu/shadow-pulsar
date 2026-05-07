@@ -94,7 +94,7 @@ export async function handleCommand(
     return ['no', 'n', 'cancelar', 'parar', 'reset', 'nel', 'nop', 'never', 'not', 'ni madres', 'nones'].includes(clean);
   };
 
-  // --- PRIORIDAD 1: COMANDOS VIP (Funcionan siempre) ---
+  // --- PRIORIDAD 1: COMANDOS VIP (Vía Rápida) ---
   const intentResult = detectIntent(text);
   
   if (intentResult.intent === 'HELP') return { responseText: Templates.Global.help };
@@ -112,9 +112,9 @@ export async function handleCommand(
   }
 
   // --- PRIORIDAD 2: MANEJAR ESTADOS ---
-  if (!storeId && !currentStep) {
-    return { responseText: Templates.Onboarding.welcomeInvite, nextStep: 'awaiting_invite_code' };
-  }
+  
+  // 1.1 Onboarding e Invitación
+  if (!storeId && !currentStep) return { responseText: Templates.Onboarding.welcomeInvite, nextStep: 'awaiting_invite_code' };
 
   if (currentStep === 'awaiting_invite_code') {
     const { data: code } = await supabase.from('invite_codes').select('*').eq('code', text.trim().toUpperCase()).eq('is_active', true).maybeSingle();
@@ -134,6 +134,7 @@ export async function handleCommand(
     return { responseText: Templates.Onboarding.newStoreConfirmation(text), nextStep: 'awaiting_new_store_confirmation', metadata: { newStoreName: text } };
   }
 
+  // 1.2 Confirmaciones Generales
   if (currentStep === 'awaiting_similarity_confirmation' || currentStep === 'awaiting_sale_confirmation' || currentStep === 'awaiting_new_store_confirmation') {
     if (isPositive(s)) {
       if (currentStep === 'awaiting_sale_confirmation') return { responseText: Templates.Sales.saleConfirmedPaymentChoice(metadata.total), nextStep: 'awaiting_payment_choice', metadata };
@@ -148,14 +149,146 @@ export async function handleCommand(
     }
   }
 
+  // 1.3 Flujo de Pago y Deuda
+  if (currentStep === 'awaiting_payment_choice') {
+    if (isPositive(s)) return { responseText: Templates.Sales.fullPaymentSuccess, metadata: { intent: 'PROCESS_SALE', ...metadata, amountReceived: metadata.total } };
+    else if (isNegative(s)) return { responseText: Templates.Sales.partialPaymentPrompt, nextStep: 'awaiting_paid_amount', metadata };
+    return { responseText: Templates.Sales.requireYesNoForFullPayment };
+  }
+
+  if (currentStep === 'awaiting_paid_amount') {
+    const received = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(received)) return { responseText: Templates.Global.invalidNumberAmount };
+    const debt = metadata.total - received;
+    return { responseText: Templates.Sales.debtRemainingPrompt(debt), nextStep: 'awaiting_debtor_name', metadata: { ...metadata, amountReceived: received, debt } };
+  }
+
+  if (currentStep === 'awaiting_debtor_name') {
+    return { responseText: Templates.Sales.debtRegisteredSuccess(text), metadata: { intent: 'PROCESS_SALE', ...metadata, customerName: text } };
+  }
+
+  // 1.4 Creación de Producto
+  if (currentStep === 'awaiting_first_product_choice') {
+    if (isNegative(s)) return { responseText: Templates.Onboarding.firstProductDecline };
+    return { responseText: Templates.Onboarding.firstProductPrompt, nextStep: 'awaiting_first_product_name' };
+  }
+
+  if (currentStep === 'awaiting_first_product_name') {
+    return { responseText: Templates.Onboarding.firstProductUnitPrompt, nextStep: 'awaiting_product_unit', metadata: { newName: text, pendingQty: 0 } };
+  }
+
+  if (currentStep === 'awaiting_product_unit') {
+    let unit = 'pza'; let unitDisplay = 'unidades';
+    if (s.includes('kilo') || s.includes('kg')) { unit = 'kg'; unitDisplay = 'Kilogramos (kg)'; }
+    else if (s.includes('gramo') || s.includes('gr')) { unit = 'gr'; unitDisplay = 'Gramos (gr)'; }
+    else if (s.includes('litro') || s.includes('lt')) { unit = 'lt'; unitDisplay = 'Litros (lt)'; }
+    else if (s.includes('caja')) { unit = 'caja'; unitDisplay = 'Cajas'; }
+    else if (s.includes('paquete')) { unit = 'paquete'; unitDisplay = 'Paquetes'; }
+
+    if (metadata.pendingQty > 0) return { responseText: Templates.Onboarding.newProductPricePrompt, nextStep: 'awaiting_new_product_price', metadata: { ...metadata, unit } };
+    return { responseText: Templates.Onboarding.firstProductQtyPrompt(metadata.newName, unitDisplay), nextStep: 'awaiting_new_product_price', metadata: { ...metadata, pendingQty: 0, unit } };
+  }
+
+  if (currentStep === 'awaiting_new_product_price') {
+    const val = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(val)) return { responseText: Templates.Global.invalidNumber };
+    if (metadata.pendingQty === 0) return { responseText: Templates.Onboarding.newProductPricePrompt, nextStep: 'awaiting_new_product_price', metadata: { ...metadata, pendingQty: val } };
+    return { responseText: Templates.Onboarding.newProductCostPrompt, nextStep: 'awaiting_new_product_cost', metadata: { ...metadata, price: val } };
+  }
+
+  if (currentStep === 'awaiting_new_product_cost') {
+    const cost = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(cost)) return { responseText: Templates.Global.invalidNumber };
+    return { responseText: Templates.Onboarding.productRegisteredSuccess(metadata.newName, metadata.pendingQty, metadata.price, cost), nextStep: 'awaiting_post_creation_action', metadata: { intent: 'CREATE_PRODUCT', name: metadata.newName, price: metadata.price, cost: cost, qty: metadata.pendingQty, unit: metadata.unit || 'pza' } };
+  }
+
   if (currentStep === 'awaiting_post_creation_action') {
     if (s.includes('inventario')) intentResult.intent = 'GET_INVENTORY';
-    else if (s.match(/\bventa\b/)) intentResult.intent = 'GREETING'; // Fallback a hola para resetear
+    else if (s.match(/\bventa\b/)) intentResult.intent = 'GREETING'; // Reset
     else if (s.includes('agregar')) intentResult.intent = 'ADD_PRODUCT';
+    else if (s.includes('editar')) intentResult.intent = 'EDIT_LAST';
     else return { responseText: Templates.Global.unrecognized };
   }
 
+  // 1.5 Otros Estados Administrativos
+  if (currentStep === 'awaiting_store_switch') {
+    const { data: stores } = await supabase.from('stores').select('id, name').ilike('name', `%${s}%`);
+    if (stores && stores.length > 0) return { responseText: Templates.Admin.storeSwitchedSuccess(stores[0].name), metadata: { intent: 'UPDATE_PROFILE_STORE', storeId: stores[0].id } };
+    return { responseText: Templates.Admin.switchStoreNotFound };
+  }
+
+  if (currentStep === 'awaiting_link_confirmation') {
+    if (isPositive(s)) {
+      const { data: profile } = await supabase.from('profiles').select('id').eq('whatsapp_number', senderName.replace(/\D/g, '')).maybeSingle();
+      if (profile) { await supabase.from('stores').update({ owner_id: profile.id }).eq('id', metadata.storeId); return { responseText: Templates.Admin.linkStoreSuccess(metadata.storeName) }; }
+      return { responseText: Templates.Admin.linkStoreProfileNotFound };
+    }
+    return { responseText: Templates.Global.cancelOperation };
+  }
+
+  if (currentStep === 'awaiting_physical_cash') {
+    const physical = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(physical)) return { responseText: Templates.Global.invalidNumber };
+    let sinceTimestamp = '1970-01-01T00:00:00Z';
+    const { data: lastCorte } = await supabase.from('cash_snapshots').select('closed_at').eq('store_id', storeId).order('closed_at', { ascending: false }).limit(1).maybeSingle();
+    if (lastCorte) sinceTimestamp = lastCorte.closed_at;
+    const { data: txs } = await supabase.from('transactions').select('amount_received').eq('store_id', storeId).gt('created_at', sinceTimestamp).is('is_voided', false);
+    const expected = txs?.reduce((sum, tx) => sum + (Number(tx.amount_received) || 0), 0) || 0;
+    const diff = physical - expected;
+    return { responseText: Templates.Admin.cashCloseSummary(physical, expected, diff), nextStep: 'awaiting_corte_confirmation', metadata: { physical, expected, diff, since: sinceTimestamp } };
+  }
+
+  if (currentStep === 'awaiting_corte_confirmation') {
+    if (isPositive(s)) return { responseText: Templates.Admin.cashCloseSuccess, metadata: { intent: 'PROCESS_CORTE', physical: metadata.physical, expected: metadata.expected, since: metadata.since } };
+    return { responseText: Templates.Global.cancelOperation };
+  }
+
+  if (currentStep === 'awaiting_void_confirmation') {
+    if (isPositive(s)) return { responseText: Templates.Admin.voidSaleSuccess, metadata: { intent: 'PROCESS_VOID', transactionId: metadata.transactionId, productId: metadata.productId, qty: metadata.qty } };
+    return { responseText: Templates.Global.cancelOperation };
+  }
+
+  if (currentStep === 'awaiting_payment_ledgers_confirmation') {
+    if (isPositive(s)) return { responseText: Templates.Ledger.ledgerPaymentSuccess(metadata.customerName), metadata: { intent: 'PROCESS_ABONO', customerId: metadata.customerId, amount: metadata.amount, customerName: metadata.customerName } };
+    return { responseText: Templates.Global.cancelOperation };
+  }
+
+  if (currentStep === 'awaiting_audit_count') {
+    const physical = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(physical)) return { responseText: Templates.Global.invalidNumber };
+    const { products, currentIndex } = metadata; const currentProd = products[currentIndex];
+    const diff = physical - currentProd.current_stock;
+    if (diff !== 0) {
+       await supabase.from('transactions').insert({ store_id: storeId, product_id: currentProd.id, type: 'correction', quantity_change: diff, notes: 'Auditoría WhatsApp' });
+       await supabase.rpc('increment_stock', { row_id: currentProd.id, amount: diff });
+    }
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < products.length) return { responseText: Templates.Admin.auditNext(nextIndex + 1, products[nextIndex].name), nextStep: 'awaiting_audit_count', metadata: { products, currentIndex: nextIndex } };
+    return { responseText: Templates.Admin.auditFinished };
+  }
+
+  if (currentStep === 'awaiting_edit_selection') {
+    if (s === '1' || s.includes('nombre')) return { responseText: Templates.Admin.editNamePrompt(metadata.editProdName), nextStep: 'awaiting_edit_name', metadata };
+    if (s === '2' || s.includes('precio')) return { responseText: Templates.Admin.editPricePrompt(metadata.editProdName), nextStep: 'awaiting_edit_price', metadata };
+    if (s === '3' || s.includes('costo')) return { responseText: Templates.Admin.editCostPrompt(metadata.editProdName), nextStep: 'awaiting_edit_cost', metadata };
+  }
+
+  if (currentStep === 'awaiting_edit_name') {
+    await supabase.from('products').update({ name: text.trim() }).eq('id', metadata.editProdId);
+    return { responseText: Templates.Admin.editSuccess };
+  }
+
+  if (currentStep === 'awaiting_edit_price' || currentStep === 'awaiting_edit_cost') {
+    const val = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (!isNaN(val)) {
+      const field = currentStep === 'awaiting_edit_price' ? 'base_price' : 'last_cost_price';
+      await supabase.from('products').update({ [field]: val }).eq('id', metadata.editProdId);
+      return { responseText: Templates.Admin.editSuccess };
+    }
+  }
+
   // --- PRIORIDAD 3: PROCESAR INTENCIONES ---
+
   if (intentResult.intent === 'GET_INVENTORY' && storeId) {
     const { data: prods } = await supabase.from('products').select('name, current_stock').eq('store_id', storeId).eq('is_active', true).order('current_stock', { ascending: true }).limit(10);
     if (!prods || prods.length === 0) return { responseText: Templates.Inventory.emptyInventory };
@@ -163,9 +296,33 @@ export async function handleCommand(
     return { responseText: Templates.Inventory.inventoryList(list) };
   }
 
+  if (intentResult.intent === 'CREATE_STORE') return { responseText: Templates.Onboarding.newStorePrompt, nextStep: 'awaiting_new_store_name' };
+  
+  if (intentResult.intent === 'VOID_SALE') {
+    const { data: lastTx } = await supabase.from('transactions').select('*, products(name)').eq('store_id', storeId).eq('type', 'sale').is('is_voided', false).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (!lastTx) return { responseText: Templates.Admin.voidSaleNotFound };
+    return { responseText: Templates.Admin.voidSaleConfirmation((lastTx as any).products.name, Math.abs(lastTx.quantity_change), lastTx.total_amount), nextStep: 'awaiting_void_confirmation', metadata: { transactionId: lastTx.id, productId: lastTx.product_id, qty: Math.abs(lastTx.quantity_change) } };
+  }
+
+  if (intentResult.intent === 'CASH_CLOSE') return { responseText: Templates.Admin.cashClosePrompt, nextStep: 'awaiting_physical_cash' };
+  
+  if (intentResult.intent === 'SWITCH_STORE') {
+    const { data: profile } = await supabase.from('profiles').select('id').eq('store_id', storeId).maybeSingle();
+    const { data: stores } = await supabase.from('stores').select('id, name').eq('owner_id', profile?.id);
+    if (!stores || stores.length <= 1) return { responseText: Templates.Admin.switchStoreOnlyOne };
+    return { responseText: Templates.Admin.switchStorePrompt(stores.map(s => `• ${s.name}`).join('\n')), nextStep: 'awaiting_store_switch' };
+  }
+
+  if (intentResult.intent === 'AUDIT_INVENTORY') {
+    const { data: products } = await supabase.from('products').select('id, name, current_stock').eq('store_id', storeId).order('name', { ascending: true });
+    if (!products || products.length === 0) return { responseText: Templates.Admin.auditEmpty };
+    return { responseText: Templates.Admin.auditStart(products[0].name), nextStep: 'awaiting_audit_count', metadata: { products, currentIndex: 0 } };
+  }
+
+  if (intentResult.intent === 'ADD_PRODUCT') return { responseText: Templates.Onboarding.firstProductPrompt, nextStep: 'awaiting_first_product_name' };
+
   if (intentResult.intent === 'RESTOCK' && intentResult.product) {
-    let searchTerm = intentResult.product;
-    if (searchTerm.endsWith('s') && searchTerm.length > 3) searchTerm = searchTerm.slice(0, -1);
+    let searchTerm = intentResult.product; if (searchTerm.endsWith('s') && searchTerm.length > 3) searchTerm = searchTerm.slice(0, -1);
     const { data: ilikeProds } = await supabase.from('products').select('id, name').eq('store_id', storeId).eq('is_active', true).ilike('name', `%${searchTerm}%`);
     if (ilikeProds && ilikeProds.length > 0) {
       const sorted = ilikeProds.sort((a, b) => Math.abs(a.name.length - searchTerm.length) - Math.abs(b.name.length - searchTerm.length));
@@ -180,28 +337,12 @@ export async function handleCommand(
       const { data: p } = await supabase.from('products').select('id, name, base_price').eq('store_id', storeId).ilike('name', `%${item.product}%`).limit(1).maybeSingle();
       if (p) { total += item.qty * p.base_price; foundItems.push({ productId: p.id, productName: p.name, qty: item.qty, price: p.base_price, lineTotal: item.qty * p.base_price }); }
     }
-    if (foundItems.length === 0) return { responseText: "❌ No encontré esos productos." };
-    return { responseText: Templates.Sales.saleConfirmation(foundItems[0].qty, foundItems[0].productName, total), nextStep: 'awaiting_sale_confirmation', metadata: { items: foundItems, total } };
+    if (foundItems.length > 0) return { responseText: Templates.Sales.saleConfirmation(foundItems[0].qty, foundItems[0].productName, total), nextStep: 'awaiting_sale_confirmation', metadata: { items: foundItems, total } };
   }
 
   if (intentResult.intent === 'GET_LINK') {
     const { data: user } = await supabase.from('profiles').select('id').eq('store_id', storeId).maybeSingle();
     return { responseText: Templates.Global.dashboardLink(storeId, user?.id || '') };
-  }
-
-  if (intentResult.intent === 'ADD_PRODUCT') {
-    return { responseText: Templates.Onboarding.firstProductPrompt, nextStep: 'awaiting_first_product_name' };
-  }
-
-  if (currentStep === 'awaiting_edit_selection') {
-    if (s === '1' || s.includes('nombre')) return { responseText: Templates.Admin.editNamePrompt(metadata.editProdName), nextStep: 'awaiting_edit_name', metadata };
-    if (s === '2' || s.includes('precio')) return { responseText: Templates.Admin.editPricePrompt(metadata.editProdName), nextStep: 'awaiting_edit_price', metadata };
-    if (s === '3' || s.includes('costo')) return { responseText: Templates.Admin.editCostPrompt(metadata.editProdName), nextStep: 'awaiting_edit_cost', metadata };
-  }
-
-  if (currentStep === 'awaiting_edit_name') {
-    await supabase.from('products').update({ name: text.trim() }).eq('id', metadata.editProdId);
-    return { responseText: Templates.Admin.editSuccess };
   }
 
   return { responseText: "" };
