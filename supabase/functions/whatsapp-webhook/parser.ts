@@ -71,7 +71,7 @@ export function detectIntent(text: string): any {
     saleKeywords.forEach(k => cleanS = cleanS.replace(new RegExp(`\\b${k}\\b`, 'gi'), ''));
     cleanS = cleanS.replace(/,|\s+y\s+|\s+con\s+/gi, ' ').trim();
     const segments = cleanS.split(/(?:^|\s)(?=\d+(?:\.\d+)?\s+)/).filter(Boolean);
-    const creditKeywords = ['fiado', 'fiada', 'fie', 'fiamos', 'fiale', 'fiame', 'fiaron', 'deben', 'debe', 'deber', 'deve', 'dever', 'llebaron', 'llevaron', 'fiao'];
+    const creditKeywords = ['fiado', 'fiada', 'fiados', 'fiadas', 'fie', 'fiamos', 'fiale', 'fiame', 'fiaron', 'deben', 'debe', 'deber', 'deve', 'dever', 'llebaron', 'llevaron', 'fiao'];
     const isCredit = creditKeywords.some(k => s.includes(k));
 
     const items = segments.map(seg => {
