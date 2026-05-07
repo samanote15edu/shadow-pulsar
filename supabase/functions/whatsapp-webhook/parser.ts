@@ -91,11 +91,11 @@ export async function handleCommand(
 
   const isPositive = (text: string) => {
     const clean = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').trim();
-    return ['si', 's', 'yes', 'va', 'dale', 'confirmar', 'acepto', 'so', 'sip', 'simon', 'sobres'].includes(clean);
+    return ['si', 's', 'yes', 'va', 'dale', 'confirmar', 'acepto', 'so', 'sip', 'simon', 'sobres', 'ok', 'okay', 'arree'].includes(clean);
   };
   const isNegative = (text: string) => {
     const clean = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').trim();
-    return ['no', 'n', 'cancelar', 'parar', 'reset'].includes(clean);
+    return ['no', 'n', 'cancelar', 'parar', 'reset', 'nel', 'nop', 'never', 'not', 'ni madres', 'nones'].includes(clean);
   };
 
   // 0. COMANDO GLOBAL: SALIR
