@@ -119,12 +119,22 @@ export async function handleCommand(
     const { data: code } = await supabase.from('invite_codes').select('*').eq('code', text.trim().toUpperCase()).eq('is_active', true).maybeSingle();
     if (code && code.current_uses < code.max_uses) {
       return {
-        responseText: Templates.Onboarding.inviteAccepted,
-        nextStep: 'awaiting_new_store_name',
+        responseText: Templates.Onboarding.askOwnerName,
+        nextStep: 'awaiting_owner_name',
         metadata: { inviteCode: code.code }
       };
     }
     return { responseText: Templates.Onboarding.invalidInvite, nextStep: 'awaiting_invite_code' };
+  }
+
+  if (currentStep === 'awaiting_owner_name') {
+    const ownerName = text.trim();
+    if (ownerName.length < 3) return { responseText: "⚠️ Por favor ingresa tu nombre completo." };
+    return {
+      responseText: Templates.Onboarding.askStoreName(ownerName),
+      nextStep: 'awaiting_new_store_name',
+      metadata: { ...metadata, ownerName }
+    };
   }
 
   // 1. MANEJAR RESPUESTAS A PREGUNTAS (ESTADOS)

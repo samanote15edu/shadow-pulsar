@@ -15,7 +15,8 @@ export const Templates = {
   Onboarding: {
     welcomeInvite: "👋 ¡Bienvenido a Shadow Pulsar! Para comenzar, por favor ingresa tu **código de invitación**.",
     invalidInvite: "❌ Código inválido o agotado. Por favor verifica tu código o solicita uno nuevo.",
-    inviteAccepted: "✅ ¡Código aceptado! Bienvenido, Partner.\n\n¿Cómo se llamará tu tienda o sucursal?",
+    askOwnerName: "✅ ¡Código aceptado! Bienvenido, Partner.\n\nPrimero, ¿cuál es tu **nombre completo**?",
+    askStoreName: (name: string) => `¡Mucho gusto, *${name}*! Ahora, ¿cómo se llamará tu **tienda o sucursal**?`,
     newStorePrompt: "✨ *Nueva Sucursal*\n\n¿Cómo se llamará la nueva tienda?",
     newStoreConfirmation: (name: string) => `✨ ¿Confirmas la creación de la tienda **"${name}"**?`,
     storeCreatedProcessing: (name: string) => `✨ Procesando la creación de la tienda *"${name}"*...`,

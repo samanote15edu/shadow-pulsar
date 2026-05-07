@@ -77,7 +77,11 @@ serve(async (req) => {
           if (storeError) {
              await sendWhatsAppMessage(from, Templates.Global.errorDb(storeError.message));
           } else if (newStore) {
-             await supabase.from('profiles').update({ store_id: newStore.id, role: 'owner' }).eq('id', profile.id);
+             await supabase.from('profiles').update({ 
+               store_id: newStore.id, 
+               role: 'owner',
+               full_name: meta.ownerName || profile.full_name // Usamos el nombre capturado
+             }).eq('id', profile.id);
              
              // Si se usó un código de invitación, incrementamos su uso
              if (meta.inviteCode) {
