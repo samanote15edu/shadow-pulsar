@@ -51,7 +51,7 @@ export function detectIntent(text: string): any {
 
   // 3. Ventas y Surtidos
   const restockKeywords = ['llegaron', 'llego', 'llegó', 'trajeron', 'trajo', 'resurtir', 'recibi', 'recibí', 'surtido', 'surtir', 'entrada', 'agrega', 'agregar', 'añadir', 'añade', 'meter', 'mete'];
-  const saleKeywords = ['vendi', 'vendí', 'vender', 'venta', 'sale', 'dame', 'ponme', 'despacha', 'compraron', 'llevaron', 'se llevaron', 'llevo', 'llevó', 'salio', 'salieron'];
+  const saleKeywords = ['vendi', 'vendí', 'vender', 'venta', 'sale', 'dame', 'ponme', 'despacha', 'compraron', 'llevaron', 'se llevaron', 'llevo', 'llevó', 'salio', 'salieron', 'fie', 'fiale', 'fiame', 'fiaron', 'deben', 'deve', 'dever', 'debe', 'deber', 'fiao'];
   
   const isRestock = restockKeywords.some(k => s.includes(k));
   const isSale = saleKeywords.some(k => s.includes(k)) || /^\d+/.test(s);
@@ -71,16 +71,24 @@ export function detectIntent(text: string): any {
     saleKeywords.forEach(k => cleanS = cleanS.replace(new RegExp(`\\b${k}\\b`, 'gi'), ''));
     cleanS = cleanS.replace(/,|\s+y\s+|\s+con\s+/gi, ' ').trim();
     const segments = cleanS.split(/(?:^|\s)(?=\d+(?:\.\d+)?\s+)/).filter(Boolean);
+    const creditKeywords = ['fiado', 'fiada', 'fie', 'fiamos', 'fiale', 'fiame', 'fiaron', 'deben', 'debe', 'deber', 'deve', 'dever', 'llebaron', 'llevaron', 'fiao'];
+    const isCredit = creditKeywords.some(k => s.includes(k));
+
     const items = segments.map(seg => {
        const qtyMatch = seg.match(/^(\d+(\.\d+)?)/);
        const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
        let product = seg.replace(/^(\d+(\.\d+)?)/, '').trim();
+       
+       // Limpiar unidades
        product = product.replace(/^(?:(?:kilos|kilo|kg|gramos|gramo|gr|litros|litro|lt|paquetes|paquete|cajas|caja|piezas|pieza|pzas|pza|de)\b\s*)+/gi, '').trim();
+       
+       // Limpiar palabras de crédito del nombre del producto (Naturalidad)
+       creditKeywords.forEach(k => {
+         product = product.replace(new RegExp(`\\b${k}\\b`, 'gi'), '').trim();
+       });
+
        return { qty, product };
     }).filter(i => i.product.length > 0);
-
-    const creditKeywords = ['fiado', 'fie', 'fiamos', 'fiale', 'debe', 'deber', 'deve', 'dever', 'llebaron', 'llevaron', 'fiao'];
-    const isCredit = creditKeywords.some(k => s.includes(k));
 
     if (items.length > 0) return { intent: 'MULTI_SALE', items, isCredit };
   }
